@@ -1,0 +1,153 @@
+"""
+Module for computing derivatives of SDFs.
+"""
+
+import igl
+import torch
+from torch import autograd
+
+
+# Autograd
+##########
+
+def get_gradient(model, latents, xyz, create_graph=False, retain_graph=None):
+    """Return the gradient w.r.t. xyz."""
+    if latents is None or latents.nelement() == 0:
+        inputs = xyz
+    else:
+        inputs = torch.cat([latents, xyz], dim=-1)
+    grads, = autograd.grad(model(inputs).sum(), xyz, create_graph=create_graph, retain_graph=retain_graph)
+    return grads
+
+def get_hessian(model, latents, xyz, create_graph=False):
+    """Return the Hessian w.r.t. xyz."""
+    xyz_flat = xyz.view(-1, 3)
+    if latents is None or latents.nelement() == 0:
+        inputs = xyz_flat
+    else:
+        latents = latents.view(-1, latents.shape[-1])
+        inputs = torch.cat([latents, xyz_flat], dim=-1)
+    hessian = torch.autograd.functional.hessian(
+        lambda inputs: model(inputs).sum(), inputs, 
+        vectorize=True, create_graph=create_graph
+    ).sum(-2)
+    return hessian.view(xyz.shape + (3,))
+
+def get_laplacian(model, latents, xyz, create_graph=False):
+    """Return the Laplacian w.r.t. xyz."""
+    hessian = get_hessian(model, latents, xyz, create_graph=create_graph)
+    # Laplacian is the trace of the Hessian
+    return torch.einsum('...ii->...', hessian)
+
+
+# Finite-Difference
+###################
+
+# Axes' offsets for the FD computations.
+_offset_fd = torch.tensor([[  # for first derivative (1x3x2x3)
+    [[-1, 0, 0], [1, 0, 0]],
+    [[0, -1, 0], [0, 1, 0]],
+    [[0, 0, -1], [0, 0, 1]],
+]]).float().cuda()
+_offset_2nd_fd = torch.tensor([[  # for second derivative (1x19x3)
+    [0, 0, 0],
+    [-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1],
+    [-1, -1, 0], [1, 1, 0], [-1, 0, -1], [1, 0, 1], [0, -1, -1], [0, 1, 1],
+    [-1, 1, 0], [1, -1, 0], [-1, 0, 1], [1, 0, -1], [0, 1, -1], [0, -1, 1],
+]]).float().cuda()
+
+def _build_hessian_fd(sdf):
+    """Build the Hessian matrix from the SDF values around the points."""
+    # sdf is [B]x19
+    hessian = torch.zeros(sdf.shape[:-1] + (3,3), device=sdf.device)
+    hessian[..., 0, 0] = sdf[..., 2] - 2*sdf[..., 0] + sdf[..., 1]
+    hessian[..., 1, 1] = sdf[..., 4] - 2*sdf[..., 0] + sdf[..., 3]
+    hessian[..., 2, 2] = sdf[..., 6] - 2*sdf[..., 0] + sdf[..., 5]
+    hessian[..., 0, 1] = hessian[..., 1, 0] = 0.25*(sdf[...,  8] - sdf[..., 14] - sdf[..., 13] + sdf[...,  7])
+    hessian[..., 0, 2] = hessian[..., 2, 0] = 0.25*(sdf[..., 10] - sdf[..., 16] - sdf[..., 15] + sdf[...,  9])
+    hessian[..., 1, 2] = hessian[..., 2, 1] = 0.25*(sdf[..., 12] - sdf[..., 18] - sdf[..., 17] + sdf[..., 11])
+    return hessian.view(sdf.shape[:-1] + (3,3))
+
+
+# From model
+def get_gradient_fd(model, latents, xyz, h):
+    """Return the pseudo-gradient w.r.t. xyz using finite-differences."""
+    xyz_flat = (xyz.view(-1, 1, 1, 3) + _offset_fd.to(xyz.device) * h).view(-1, 3)
+    if latents is None or latents.nelement() == 0:
+        inputs = xyz_flat
+    else:
+        latents = latents.view(-1, 1, 1, latents.shape[-1]).repeat(1, 3, 2, 1).view(-1, latents.shape[-1])
+        inputs = torch.cat([latents, xyz_flat], dim=-1)
+    sdf = model(inputs).view(-1, 3, 2)
+    grads = (sdf[:, :, 1] - sdf[:, :, 0]) / (2. * h)
+    return grads.view(xyz.shape)
+
+def get_hessian_fd(model, latents, xyz, h):
+    """Return the pseudo-Hessian w.r.t. xyz using finite-differences."""
+    xyz_flat = (xyz.view(-1, 1, 3) + _offset_2nd_fd.to(xyz.device) * h).view(-1, 3)
+    if latents is None or latents.nelement() == 0:
+        inputs = xyz_flat
+    else:
+        latents = latents.view(-1, 1, latents.shape[-1]).repeat(1, 19, 1).view(-1, latents.shape[-1])
+        inputs = torch.cat([latents, xyz_flat], dim=-1)
+    sdf = model(inputs).view(-1, 19)
+    
+    hessian = _build_hessian_fd(sdf) / (h * h)
+    return hessian.view(xyz.shape + (3,))
+
+def get_laplacian_fd(model, latents, xyz, h):
+    """Return the pseudo-Laplacian w.r.t. xyz using finite-differences."""
+    xyz_flat = xyz.view(-1, 3)
+    len_xyz = len(xyz_flat)
+    xyz_offset = (xyz.view(-1, 1, 1, 3) + _offset_fd.to(xyz.device) * h).view(-1, 3)
+    xyz_flat = torch.cat([xyz_flat, xyz_offset], dim=0)
+    if latents is None or latents.nelement() == 0:
+        inputs = xyz_flat
+    else:
+        latents = torch.cat([
+            latents.view(-1, latents.shape[-1]),
+            latents.view(-1, 1, 1, latents.shape[-1]).repeat(1, 3, 2, 1).view(-1, latents.shape[-1])
+        ], dim=0)
+        inputs = torch.cat([latents, xyz_flat], dim=-1)
+    sdf = model(inputs).view(-1)
+    sdf_0 = sdf[:len_xyz]
+    sdf = sdf[len_xyz:].view(-1, 3*2)
+    
+    laplacian = (sdf.sum(1) - 6 * sdf_0) / (h * h)
+    return laplacian.view(xyz.shape[:-1])
+
+
+# From mesh (done on cpu for memory issues)
+@torch.no_grad()
+def get_gradient_fd_mesh(mesh, xyz, h):
+    """Return the pseudo-gradient of the mesh's SDF w.r.t. xyz using finite-differences."""
+    xyz_flat = (xyz.view(-1, 1, 1, 3).detach().cpu() + _offset_fd.cpu() * h).view(-1, 3).numpy()
+    sdf = igl.signed_distance(xyz_flat, mesh.vertices, mesh.faces)[0]
+    sdf = torch.from_numpy(sdf).float().view(-1, 3, 2)
+    grads = (sdf[:, :, 1] - sdf[:, :, 0]) / (2 * h)
+    return grads.view(xyz.shape).detach().cpu()
+
+@torch.no_grad()
+def get_hessian_fd_mesh(mesh, xyz, h):
+    """Return the pseudo-Hessian of the mesh's SDF w.r.t. xyz using finite-differences."""
+    xyz_flat = (xyz.view(-1, 1, 3).detach().cpu() + _offset_2nd_fd.cpu() * h).view(-1, 3).numpy()
+    sdf = igl.signed_distance(xyz_flat, mesh.vertices, mesh.faces)[0]
+    sdf = torch.from_numpy(sdf).float().view(-1, 19)
+    
+    hessian = _build_hessian_fd(sdf) / (h * h)
+    return hessian.view(xyz.shape + (3,)).detach().cpu()
+
+@torch.no_grad()
+def get_laplacian_fd_mesh(mesh, xyz, h):
+    """Return the pseudo-Laplacian of the mesh's SDF w.r.t. xyz using finite-differences."""
+    xyz_flat = xyz.view(-1, 3).detach().cpu()
+    len_xyz = len(xyz_flat)
+    xyz_offset = (xyz.view(-1, 1, 1, 3) + _offset_fd.cpu() * h).view(-1, 3)
+    xyz_flat = torch.cat([xyz_flat, xyz_offset], dim=0).numpy()
+    sdf = igl.signed_distance(xyz_flat, mesh.vertices, mesh.faces)[0]
+    sdf = torch.from_numpy(sdf).float().view(-1)
+    sdf_0 = sdf[:len_xyz]
+    sdf = sdf[len_xyz:].view(-1, 3*2)
+    
+    laplacian = (sdf.sum(1) - 6 * sdf_0) / (h * h)
+    return laplacian.view(xyz.shape[:-1]).detach().cpu()
