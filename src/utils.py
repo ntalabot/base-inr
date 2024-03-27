@@ -208,10 +208,12 @@ def get_sdf_mesh(mesh, xyz):
     sdf = igl.signed_distance(xyz.reshape(-1, 3), mesh.vertices, mesh.faces)[0]
     return sdf.reshape(xyz.shape[:-1])
 
-def get_winding_number_mesh(mesh, xyz):
+def get_winding_number_mesh(mesh, xyz, method='fast'):
     """Return the winding number of the mesh at the queried positions, using IGL."""
-    wn = igl.winding_number(mesh.vertices, mesh.faces, xyz.reshape(-1, 3).astype(mesh.vertices.dtype))
-    # wn = igl.fast_winding_number_for_meshes(mesh.vertices, mesh.faces, xyz.reshape(-1, 3).astype(mesh.vertices.dtype))
+    if method == 'fast':
+        wn = igl.fast_winding_number_for_meshes(mesh.vertices, mesh.faces, xyz.reshape(-1, 3).astype(mesh.vertices.dtype))
+    else:
+        wn = igl.winding_number(mesh.vertices, mesh.faces, xyz.reshape(-1, 3).astype(mesh.vertices.dtype))
     return wn.reshape(xyz.shape[:-1])
 
 

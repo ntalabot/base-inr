@@ -16,7 +16,7 @@ import trimesh
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src import workspace as ws
-from src.metric import chamfer_distance
+from src.metric import chamfer_distance, mesh_iou
 from src.utils import configure_logging, set_seed
 
 
@@ -34,8 +34,11 @@ def parser(argv=None):
     parser.add_argument('-t', '--test', action='store_true', help="reconstruct the test set, otherwise reconstruct the validation set (--split override this)")
 
     # Chamfer-Distance
-    parser.add_argument('--chamfer-samples', type=int, default=30000, help="number of surface samples for chamfer distance (default=30000)")
-    parser.add_argument('--no-square-dist', action='store_false', dest="square_dist", help="do not use square distances for the chamfer-distance")
+    parser.add_argument('--cd-samples', type=int, default=30000, help="number of surface samples for chamfer distance (default=30000)")
+    parser.add_argument('--cd-no-square-dist', action='store_false', dest="cd_square_dist", help="do not use square distances for the chamfer-distance")
+
+    # Mesh Intersection-over-Union
+    parser.add_argument('--iou-resolution', type=int, default=256, help="resolution of the grid for the mesh IoU (default=256)")
 
     args = parser.parse_args(argv)
 
@@ -82,7 +85,8 @@ def main(args=None):
     results = {}
     filenames = {}
     metrics = [
-        "chamfer"  # Chamfer-Distance
+        "chamfer",  # Chamfer-Distance
+        "iou",      # Mesh Intersection-over-Union
     ]
     for metric in metrics:
         results[metric] = {}
@@ -100,6 +104,7 @@ def main(args=None):
         if not os.path.isfile(recon_mesh_filename):
             logging.warning(f"no mesh found under {recon_mesh_filename}! Skipping...")
             continue
+        recon_mesh = trimesh.load(recon_mesh_filename)
 
         # Chamger-Distance
         if args.skip and instance in results["chamfer"]:
@@ -107,15 +112,27 @@ def main(args=None):
         else:
             # Load GT surface samples
             gt_samples = np.load(os.path.join(datasource, instance, "surface.npz"))['all']
-            gt_samples = np.random.permutation(gt_samples)[:args.chamfer_samples, :3]
+            gt_samples = np.random.permutation(gt_samples)[:args.cd_samples, :3]
 
             # Reconstruction surface samples
-            recon_samples = trimesh.load(recon_mesh_filename).sample(args.chamfer_samples)
+            recon_samples = recon_mesh.sample(args.cd_samples)
 
             # Chamfer-Distance
-            chamfer_val = chamfer_distance(gt_samples, recon_samples, square_dist=args.square_dist)
+            chamfer_val = chamfer_distance(gt_samples, recon_samples, square_dist=args.cd_square_dist)
             results["chamfer"][instance] = float(chamfer_val)
             logging.info(f"chamfer = {chamfer_val}")
+        
+        # Mesh Intersection-over-Union
+        if args.skip and instance in results["iou"]:
+            logging.info(f"iou = {results["iou"][instance]} (existing)")
+        else:
+            # Load GT mesh
+            gt_mesh = trimesh.load(os.path.join(specs['DataSource'], "meshes", instance+".obj"))
+
+            # Mesh Intersection-over-Union
+            iou_val = mesh_iou(gt_mesh, recon_mesh, args.iou_resolution)
+            results["iou"][instance] = float(iou_val)
+            logging.info(f"iou = {iou_val}")
     
     # Save results
     for metric in metrics:
