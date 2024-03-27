@@ -51,9 +51,15 @@ def reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1
     optimizer = optim.Adam([latent], lr=lr)
     scheduler = optim.lr_scheduler.StepLR(optimizer, n_iters//2, 0.1)
 
+    # Model in evaluation mode and frozen
     model.eval()
+    p_state = []
+    for p in model.parameters():
+        p_state.append(p.requires_grad)
+        p.requires_grad = False
+    
     for _ in range(n_iters):
-        # Sample SDF (TODO: this is currently quite slow)
+        # Sample SDF
         xyz, sdf_gt = [], []
         for pos, neg in zip (sdf_pos, sdf_neg):
             _xyz, _sdf_gt = samples_from_tensor(pos, neg, n_samples)
@@ -81,8 +87,11 @@ def reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1
         if max_norm is not None:
             with torch.no_grad():
                 latent_norm = latent.norm(dim=-1, keepdim=True)
-                if latent_norm > max_norm:
-                    latent *= max_norm / latent_norm
+                latent *= latent_norm.clamp(max=max_norm) / latent_norm
+
+    # Restore model's parameter state
+    for p, state in zip(model.parameters(), p_state):
+        p.requires_grad = state
     
     if verbose:
         print(f"reconstruction took {time.time() - start_time:.3f}s.") 

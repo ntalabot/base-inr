@@ -3,8 +3,8 @@ Template for Implicit Neural Representations (INR) projects, mostly with the Sig
 
 ## TODO
 * [X] Update models to take (latent, xyz) without repeating the latents
-* [ ] Look into IoU metric and Winding-Number (`libigl`)
-* [ ] Speed up reconstruction function
+* [X] Look into IoU metric and Winding-Number (`libigl`)
+* [ ] ~~Speed up reconstruction function~~
 * [ ] Add `device` instead of defaulting to CUDA
 * [ ] Restructure training (and inference/eval?) as `Trainer` class
 * [ ] Docs
