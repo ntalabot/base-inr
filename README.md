@@ -2,7 +2,7 @@
 Template for Implicit Neural Representations (INR) projects, mostly with the Signed Distance Function (SDF) in mind.
 
 ## TODO
-* [ ] Update models to take (latent, xyz) without repeating the latents
+* [X] Update models to take (latent, xyz) without repeating the latents
 * [ ] Look into IoU metric and Winding-Number (`libigl`)
 * [ ] Add `device` instead of defaulting to CUDA
 * [ ] Speed up reconstruction function

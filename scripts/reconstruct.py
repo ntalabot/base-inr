@@ -89,7 +89,7 @@ def main(args=None):
 
     # Loss
     loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none')
-    latent_reg = specs["LatentRegularizationLambda"]
+    latent_reg = specs["LatentRegLambda"]
 
     # Resume from checkpoint
     if args.load_epoch == 'latest':

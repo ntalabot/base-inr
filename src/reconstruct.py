@@ -53,7 +53,7 @@ def reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1
 
     model.eval()
     for _ in range(n_iters):
-        # Sample SDF (TODO: this current code is quite slow)
+        # Sample SDF (TODO: this is currently quite slow)
         xyz, sdf_gt = [], []
         for pos, neg in zip (sdf_pos, sdf_neg):
             _xyz, _sdf_gt = samples_from_tensor(pos, neg, n_samples)
@@ -62,8 +62,7 @@ def reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1
         xyz, sdf_gt = torch.stack(xyz), torch.stack(sdf_gt)
 
         # Forward pass
-        inputs = torch.cat([latent.unsqueeze(1).expand(1, n_samples, -1), xyz], dim=-1)
-        preds = model(inputs)[..., 0:1]  # SDF output
+        preds = model(latent.unsqueeze(1), xyz)[..., 0:1]  # SDF output
         if clampD is not None and clampD > 0:
             preds = clamp_sdf(preds, clampD, ref=sdf_gt)
             sdf_gt = clamp_sdf(sdf_gt, clampD)

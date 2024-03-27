@@ -1,5 +1,7 @@
 """
 Module for computing derivatives of SDFs.
+
+NOTE: it is assumed that the model outputs a single scalar value for each input point!
 """
 
 import igl
@@ -9,29 +11,26 @@ from torch import autograd
 
 # Autograd
 ##########
+# Use the exact gradients and Hessians computed by autograd.
 
 def get_gradient(model, latents, xyz, create_graph=False, retain_graph=None):
     """Return the gradient w.r.t. xyz."""
-    if latents is None or latents.nelement() == 0:
-        inputs = xyz
-    else:
-        inputs = torch.cat([latents, xyz], dim=-1)
-    grads, = autograd.grad(model(inputs).sum(), xyz, create_graph=create_graph, retain_graph=retain_graph)
+    grads, = autograd.grad(model(latents, xyz).sum(), xyz, create_graph=create_graph, retain_graph=retain_graph)
     return grads
+
 
 def get_hessian(model, latents, xyz, create_graph=False):
     """Return the Hessian w.r.t. xyz."""
+    # Here, need to flatten the points and repeat the latents
     xyz_flat = xyz.view(-1, 3)
-    if latents is None or latents.nelement() == 0:
-        inputs = xyz_flat
-    else:
+    if latents is not None and latents.nelement() > 0:
         latents = latents.view(-1, latents.shape[-1])
-        inputs = torch.cat([latents, xyz_flat], dim=-1)
     hessian = torch.autograd.functional.hessian(
-        lambda inputs: model(inputs).sum(), inputs, 
+        lambda xyz: model(latents, xyz).sum(), xyz_flat, 
         vectorize=True, create_graph=create_graph
     ).sum(-2)
     return hessian.view(xyz.shape + (3,))
+
 
 def get_laplacian(model, latents, xyz, create_graph=False):
     """Return the Laplacian w.r.t. xyz."""
@@ -42,8 +41,10 @@ def get_laplacian(model, latents, xyz, create_graph=False):
 
 # Finite-Difference
 ###################
+# Use finite-differences to compute the gradients and Hessians.
+# Based on central differences: https://en.wikipedia.org/wiki/Finite_difference
 
-# Axes' offsets for the FD computations.
+# Point offsets for the FD computations.
 _offset_fd = torch.tensor([[  # for first derivative (1x3x2x3)
     [[-1, 0, 0], [1, 0, 0]],
     [[0, -1, 0], [0, 1, 0]],
@@ -56,8 +57,13 @@ _offset_2nd_fd = torch.tensor([[  # for second derivative (1x19x3)
     [-1, 1, 0], [1, -1, 0], [-1, 0, 1], [1, 0, -1], [0, 1, -1], [0, -1, 1],
 ]]).float().cuda()
 
+
 def _build_hessian_fd(sdf):
-    """Build the Hessian matrix from the SDF values around the points."""
+    """
+    Build the Hessian matrix from the SDF values around the points.
+
+    It is based on the order of offsets from `_offset_2nd_fd`.
+    """
     # sdf is [B]x19
     hessian = torch.zeros(sdf.shape[:-1] + (3,3), device=sdf.device)
     hessian[..., 0, 0] = sdf[..., 2] - 2*sdf[..., 0] + sdf[..., 1]
@@ -69,55 +75,45 @@ def _build_hessian_fd(sdf):
     return hessian.view(sdf.shape[:-1] + (3,3))
 
 
-# From model
+## For an SDF model
 def get_gradient_fd(model, latents, xyz, h):
     """Return the pseudo-gradient w.r.t. xyz using finite-differences."""
-    xyz_flat = (xyz.view(-1, 1, 1, 3) + _offset_fd.to(xyz.device) * h).view(-1, 3)
-    if latents is None or latents.nelement() == 0:
-        inputs = xyz_flat
-    else:
-        latents = latents.view(-1, 1, 1, latents.shape[-1]).repeat(1, 3, 2, 1).view(-1, latents.shape[-1])
-        inputs = torch.cat([latents, xyz_flat], dim=-1)
-    sdf = model(inputs).view(-1, 3, 2)
-    grads = (sdf[:, :, 1] - sdf[:, :, 0]) / (2. * h)
+    xyz_fd = xyz.unsqueeze(-2).unsqueeze(-2) + _offset_fd.to(xyz.device) * h
+    if latents is not None and latents.nelement() > 0:
+        latents = latents.unsqueeze(-2).unsqueeze(-2)
+    sdf = model(latents, xyz_fd).squeeze(-1)
+
+    grads = (sdf[..., 1] - sdf[..., 0]) / (2. * h)
     return grads.view(xyz.shape)
+
 
 def get_hessian_fd(model, latents, xyz, h):
     """Return the pseudo-Hessian w.r.t. xyz using finite-differences."""
+    # Here, need to flatten the points and repeat the latents
     xyz_flat = (xyz.view(-1, 1, 3) + _offset_2nd_fd.to(xyz.device) * h).view(-1, 3)
-    if latents is None or latents.nelement() == 0:
-        inputs = xyz_flat
-    else:
-        latents = latents.view(-1, 1, latents.shape[-1]).repeat(1, 19, 1).view(-1, latents.shape[-1])
-        inputs = torch.cat([latents, xyz_flat], dim=-1)
-    sdf = model(inputs).view(-1, 19)
+    if latents is not None and latents.nelement() > 0:
+        latents = latents.expand(*xyz.shape[:-1], -1)
+        latents = latents.view(-1, 1, latents.shape[-1]).expand(-1, 19, -1).view(-1, latents.shape[-1])
+    sdf = model(latents, xyz_flat).view(-1, 19)
     
     hessian = _build_hessian_fd(sdf) / (h * h)
     return hessian.view(xyz.shape + (3,))
 
+
 def get_laplacian_fd(model, latents, xyz, h):
     """Return the pseudo-Laplacian w.r.t. xyz using finite-differences."""
-    xyz_flat = xyz.view(-1, 3)
-    len_xyz = len(xyz_flat)
-    xyz_offset = (xyz.view(-1, 1, 1, 3) + _offset_fd.to(xyz.device) * h).view(-1, 3)
-    xyz_flat = torch.cat([xyz_flat, xyz_offset], dim=0)
-    if latents is None or latents.nelement() == 0:
-        inputs = xyz_flat
-    else:
-        latents = torch.cat([
-            latents.view(-1, latents.shape[-1]),
-            latents.view(-1, 1, 1, latents.shape[-1]).repeat(1, 3, 2, 1).view(-1, latents.shape[-1])
-        ], dim=0)
-        inputs = torch.cat([latents, xyz_flat], dim=-1)
-    sdf = model(inputs).view(-1)
-    sdf_0 = sdf[:len_xyz]
-    sdf = sdf[len_xyz:].view(-1, 3*2)
-    
-    laplacian = (sdf.sum(1) - 6 * sdf_0) / (h * h)
+    # Append the offset points to the original ones
+    xyz_fd = xyz.unsqueeze(-2) + _offset_fd.to(xyz.device).view(1, 3*2, 3) * h
+    xyz_fd = torch.cat([xyz.unsqueeze(-2), xyz_fd], dim=-2)
+    if latents is not None and latents.nelement() > 0:
+        latents = latents.unsqueeze(-2)
+    sdf = model(latents, xyz_fd).squeeze(-1)
+
+    laplacian = (sdf[..., 1:7].sum(-1) - 6 * sdf[..., 0]) / (h * h)
     return laplacian.view(xyz.shape[:-1])
 
 
-# From mesh (done on cpu for memory issues)
+## For a mesh (done on cpu for memory issues; non-differentiable)
 @torch.no_grad()
 def get_gradient_fd_mesh(mesh, xyz, h):
     """Return the pseudo-gradient of the mesh's SDF w.r.t. xyz using finite-differences."""

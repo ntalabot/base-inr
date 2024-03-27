@@ -105,7 +105,7 @@ def main(args=None):
 
     # Loss and optimizer
     loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none')
-    latent_reg = specs["LatentRegularizationLambda"]
+    latent_reg = specs["LatentRegLambda"]
     eikonal_lambda = specs.get("EikonalLossLambda", None)
     
     optimizer = get_optimizer(model, type=specs["Optimizer"].pop("Type"),
@@ -187,7 +187,7 @@ def main(args=None):
         
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         
         history['epoch'] += 1
         for name in loss_names:

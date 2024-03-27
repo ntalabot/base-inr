@@ -122,7 +122,7 @@ def main(args=None):
 
     # Loss and optimizer
     loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none')
-    latent_reg = specs["LatentRegularizationLambda"]
+    latent_reg = specs["LatentRegLambda"]
     eikonal_lambda = specs.get("EikonalLossLambda", None)
     
     optimizer = get_optimizer([model, latents], type=specs["Optimizer"].pop("Type"),
@@ -180,7 +180,7 @@ def main(args=None):
             indices, xyz, sdf_gt = batch[0:3]
             xyz = xyz.cuda().requires_grad_(eikonal_lambda is not None and eikonal_lambda > 0.)  # BxNx3
             sdf_gt = sdf_gt.cuda()  # BxNx1
-            indices = indices.cuda().unsqueeze(-1).repeat(1, xyz.shape[1])  # BxN
+            indices = indices.cuda().unsqueeze(-1).expand(-1, xyz.shape[1])  # BxN
             batch_latents = latents(indices)  # BxNxL
 
             inputs = torch.cat([batch_latents, xyz], dim=-1)  # BxNx(L+3)
@@ -206,7 +206,7 @@ def main(args=None):
             
             loss.backward()
             optimizer.step()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
         
         # Validation
         if valid_frequency is not None and epoch % valid_frequency == 0:

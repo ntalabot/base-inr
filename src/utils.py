@@ -6,6 +6,7 @@ import sys
 import random
 import logging
 import io
+import time
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -74,6 +75,50 @@ def configure_logging(args=None, logfile=None):
 #######
 # SDF #
 #######
+
+def compute_sdf(model, latent, xyz, max_batch=32**3, verbose=False, device="cuda:0"):
+    """
+    Compute the SDF values for a single shape at the given positions.
+
+    Args:
+    -----
+    model: nn.Module
+        The model to evaluate.
+    latent: torch.Tensor, shape (1, latent_size)
+        The latent vector of the shape.
+    xyz: torch.Tensor, shape ([N], 3)
+        The positions to evaluate the SDF at.
+    max_batch: int (default=32**3)
+        The maximum number of points to evaluate at once.
+    verbose: bool (default=False)
+        If True, print the time taken for the computation.
+    device: str (default="cuda:0")
+        The device to use to store the final SDF values.
+    
+    Returns:
+    --------
+    sdf: torch.Tensor, shape ([N], 1)
+        The SDF values at the given positions.
+    """
+    if verbose:
+        start_time = time.time()
+    model.eval()
+
+    # Prepare data
+    xyz_all = xyz.view(-1, 3)
+    n_points = len(xyz_all)
+    sdf = torch.zeros(n_points, device=device)
+
+    # Predict SDF on a subset of points at a time
+    latent = latent.view(1, -1)
+    for i in range(0, n_points, max_batch):
+        xyz_subset = xyz_all[i : i + max_batch].to(device)
+        sdf[i : i + max_batch] = model(latent, xyz_subset)[:, 0].detach().to(device)
+
+    if verbose:
+        print(f"sdf-prediction took {time.time() - start_time:.3f}s.")    
+    return sdf.view(xyz.shape[:-1] + (1,))
+
 
 def clamp_sdf(sdf, clampD, ref=None):
     """

@@ -40,6 +40,10 @@ def get_activation(activation):
         return Sawtooth(*args)
     elif activation.lower() == "geglu":
         return GEGLU(*args)
+    elif activation.lower() == "hosc":
+        return HOSC(*args)
+    elif activation.lower() == "adahosc":
+        return HOSC(*args, adaptive=True)
     else:
         raise NotImplementedError(f"Unknown activation \"{activation}\".")
 
@@ -102,3 +106,31 @@ class GEGLU(nn.Module):
     def forward(self, x):
         x, gates = x.chunk(2, dim=-1)
         return x * F.gelu(gates)
+    
+    def __repr__(self):
+        return f"GEGLU()"
+    
+
+class HOSC(nn.Module):
+    """
+    Hyperbolic Oscillation activation function, Serrano et al., ArXiv 2024.
+
+    Implementation is my own. For the adaptive version, we use the exponential
+    to enforce a positive beta.
+    """
+
+    def __init__(self, beta=1., adaptive=False):
+        super().__init__()
+        self.beta = beta
+        self.adaptive = adaptive
+        
+        if self.adaptive:
+            self.logbeta = nn.Parameter(torch.tensor(beta).log())
+    
+    def forward(self, x):
+        beta = self.logbeta.exp() if self.adaptive else self.beta
+        return torch.tanh(beta * torch.sin(x))
+    
+    def __repr__(self):
+        beta = self.logbeta.exp().item() if self.adaptive else self.beta
+        return f"HOSC(beta={beta:.2f}, adaptive={self.adaptive})"

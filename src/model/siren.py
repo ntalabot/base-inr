@@ -36,6 +36,22 @@ class Siren(nn.Module):
                  layer_norm=False, features=None,
                  input_dim=3, output_dim=1, output_scale=None,
                  **kwargs):
+        """
+        Args:
+            latent_dim (int): dimension of the latent code.
+            hidden_dim (int): dimension of the hidden layers.
+            n_layers (int): number of layers.
+            in_insert (list of int): list of layers where to reinsert the input.
+            factor (float): factor for the initialization of the weights.
+            dropout (float): dropout rate.
+            weight_norm (bool): whether to use weight normalization.
+            last_tanh (bool): whether to apply a tanh to the output.
+            layer_norm (bool): whether to use layer normalization.
+            features (str): type of input features to use.
+            input_dim (int): dimension of the input features.
+            output_dim (int): dimension of the output.
+            output_scale (float): scale to apply to the output.
+        """
         super().__init__()
         self.latent_dim = latent_dim
         self.in_insert = in_insert
@@ -88,20 +104,24 @@ class Siren(nn.Module):
             # Combine them
             self.fcs.append(nn.Sequential(*layer))
 
-    def forward(self, x):
-        # Separate latent from positions
-        lat = x[..., :self.latent_dim]
-        xyz = x[..., self.latent_dim:]
 
+    def forward(self, lat, xyz):
+        """
+        Args:
+            lat (torch.Tensor): latent code. Should have singleton dimensions
+                where the latents need to be repeated. E.g., [B, 1, 256] if
+                xyz.shape = [B, N, 3] with B:=batch and N:=points per shape.
+            xyz (torch.Tensor): input positions.
+        """
+        # Compute input features, then concatenate them with the latent code
         feats = self.features(xyz) if self.features is not None else xyz
-        x = torch.cat([lat, feats], dim=-1)
-
-        out = x
+        out = torch.cat([lat.expand(feats.shape[:-1] + (-1,)), feats], dim=-1)
+        
         for i, fc in enumerate(self.fcs):
             out = fc(out)
 
             if (i + 1) in self.in_insert:
-                out = torch.cat([out, x], dim=-1)
+                out = torch.cat([out, feats], dim=-1)
         
         if self.output_scale is not None:
             out = out * self.output_scale
@@ -115,6 +135,20 @@ class LatentModulatedSiren(nn.Module):
                  dropout=0., weight_norm=True, last_tanh=False, features=None,
                  input_dim=3, output_dim=1, output_scale=None,
                  **kwargs):
+        """
+        Args:
+            latent_dim (int): dimension of the latent code.
+            hidden_dim (int): dimension of the hidden layers.
+            n_layers (int): number of layers.
+            factor (float): factor for the initialization of the weights.
+            dropout (float): dropout rate.
+            weight_norm (bool): whether to use weight normalization.
+            last_tanh (bool): whether to apply a tanh to the output.
+            features (str): type of input features to use.
+            input_dim (int): dimension of the input features.
+            output_dim (int): dimension of the output.
+            output_scale (float): scale to apply to the output.
+        """
         super().__init__()
         self.latent_dim = latent_dim
         self.dropout = dropout
@@ -146,15 +180,16 @@ class LatentModulatedSiren(nn.Module):
         self.sine = Sine(factor)
         
 
-    def forward(self, x):
-        # Separate latent from positions
-        lat = x[..., :self.latent_dim]
-        xyz = x[..., self.latent_dim:]
-
-        if self.features is not None:
-            out = self.features(xyz)
-        else:
-            out = xyz
+    def forward(self, lat, xyz):
+        """
+        Args:
+            lat (torch.Tensor): latent code. Should have singleton dimensions
+                where the latents need to be repeated. E.g., [B, 1, 256] if
+                xyz.shape = [B, N, 3] with B:=batch and N:=points per shape.
+            xyz (torch.Tensor): input positions.
+        """
+        # Compute input features
+        out = self.features(xyz) if self.features is not None else xyz
 
         for layer in self.layers[:-1]:
             out = self.sine(layer(out, lat))

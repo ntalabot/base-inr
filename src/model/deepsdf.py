@@ -3,7 +3,6 @@ Implementation of DeepSDF (Park et al., CVPR 2019)
 and similar models.
 """
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -21,6 +20,22 @@ class DeepSDF(nn.Module):
                  layer_norm=False, activation="relu", features=None,
                  input_dim=3, output_dim=1, output_scale=None,
                  **kwargs):
+        """
+        Args:
+            latent_dim (int): dimension of the latent code.
+            hidden_dim (int): dimension of hidden layers.
+            n_layers (int): number of layers.
+            in_insert (list of int): list of layers where to reinsert the input.
+            dropout (float): dropout rate.
+            weight_norm (bool): whether to apply weight normalization.
+            last_tanh (bool): whether to apply tanh to the output.
+            layer_norm (bool): whether to apply layer normalization.
+            activation (str): type of activation function.
+            features (str): type of input features.
+            input_dim (int): dimension of the input.
+            output_dim (int): dimension of the output.
+            output_scale (float): scale to apply to the output.
+        """
         super().__init__()
         self.latent_dim = latent_dim
         self.in_insert = in_insert
@@ -69,20 +84,24 @@ class DeepSDF(nn.Module):
             # Combine them
             self.fcs.append(nn.Sequential(*layer))
 
-    def forward(self, x):
-        # Separate latent from positions
-        lat = x[..., :self.latent_dim]
-        xyz = x[..., self.latent_dim:]
 
+    def forward(self, lat, xyz):
+        """
+        Args:
+            lat (torch.Tensor): latent code. Should have singleton dimensions
+                where the latents need to be repeated. E.g., [B, 1, 256] if
+                xyz.shape = [B, N, 3] with B:=batch and N:=points per shape.
+            xyz (torch.Tensor): input positions.
+        """
+        # Compute input features, then concatenate them with the latent code
         feats = self.features(xyz) if self.features is not None else xyz
-        x = torch.cat([lat, feats], dim=-1)
+        out = torch.cat([lat.expand(feats.shape[:-1] + (-1,)), feats], dim=-1)
 
-        out = x
         for i, fc in enumerate(self.fcs):
             out = fc(out)
 
             if (i + 1) in self.in_insert:
-                out = torch.cat([out, x], dim=-1)
+                out = torch.cat([out, feats], dim=-1)
         
         if self.output_scale is not None:
             out = out * self.output_scale
@@ -93,14 +112,26 @@ class LatentModulatedDeepSDF(nn.Module):
     """Latent Modulated DeepSDF."""
     
     def __init__(self, latent_dim=256, hidden_dim=512, n_layers=8,
-                 dropout=0., weight_norm=True, last_tanh=False,
+                 dropout=0., weight_norm=True,
                  activation="relu", features=None,
                  input_dim=3, output_dim=1, output_scale=None,
                  **kwargs):
+        """
+        Args:
+            latent_dim (int): dimension of the latent code.
+            hidden_dim (int): dimension of hidden layers.
+            n_layers (int): number of layers.
+            dropout (float): dropout rate.
+            weight_norm (bool): whether to apply weight normalization.
+            activation (str): type of activation function.
+            features (str): type of input features.
+            input_dim (int): dimension of the input.
+            output_dim (int): dimension of the output.
+            output_scale (float): scale to apply to the output.
+        """
         super().__init__()
         self.latent_dim = latent_dim
         self.dropout = dropout
-        self.last_tanh = last_tanh
         self.output_scale = self.register_buffer("output_scale", 
                                                  torch.tensor(output_scale) if output_scale is not None else None)
 
@@ -128,15 +159,16 @@ class LatentModulatedDeepSDF(nn.Module):
         self.activ = get_activation(activation)
             
 
-    def forward(self, x):
-        # Separate latent from positions
-        lat = x[..., :self.latent_dim]
-        xyz = x[..., self.latent_dim:]
-
-        if self.features is not None:
-            out = self.features(xyz)
-        else:
-            out = xyz
+    def forward(self, lat, xyz):
+        """
+        Args:
+            lat (torch.Tensor): latent code. Should have singleton dimensions
+                where the latents need to be repeated. E.g., [B, 1, 256] if
+                xyz.shape = [B, N, 3] with B:=batch and N:=points per shape.
+            xyz (torch.Tensor): input positions.
+        """
+        # Compute input features
+        out = self.features(xyz) if self.features is not None else xyz
 
         for layer in self.layers[:-1]:
             out = self.activ(layer(out, lat))
@@ -144,8 +176,6 @@ class LatentModulatedDeepSDF(nn.Module):
                 out = F.dropout(out, self.dropout)
         
         out = self.layers[-1](out, lat)
-        if self.last_tanh:
-            out = F.tanh(out)
         if self.output_scale is not None:
             out = out * self.output_scale
         return out
@@ -192,17 +222,18 @@ class InputModulatedDeepSDF(nn.Module):
         self.activ = get_activation(activation)
             
 
-    def forward(self, x):
-        # Separate latent from positions
-        lat = x[..., :self.latent_dim]
-        xyz = x[..., self.latent_dim:]
+    def forward(self, lat, xyz):
+        """
+        Args:
+            lat (torch.Tensor): latent code. Should have singleton dimensions
+                where the latents need to be repeated. E.g., [B, 1, 256] if
+                xyz.shape = [B, N, 3] with B:=batch and N:=points per shape.
+            xyz (torch.Tensor): input positions.
+        """
+        # Compute input features, then concatenate them with the latent code
+        feats = self.features(xyz) if self.features is not None else xyz
+        inp = torch.cat([lat, feats], dim=-1)
 
-        if self.features is not None:
-            out = self.features(xyz)
-        else:
-            out = xyz
-
-        inp = torch.cat([lat, out], dim=-1)
         out = self.activ(self.layers[0](inp))
         for layer in self.layers[1:-1]:
             out = self.activ(layer(out, inp))
@@ -221,14 +252,26 @@ class DemodulatedDeepSDF(nn.Module):
     """DeepSDF with demodulated-linear layers."""
     
     def __init__(self, latent_dim=256, hidden_dim=512, n_layers=8,
-                 dropout=0., weight_norm=True, last_tanh=False,
+                 dropout=0., weight_norm=True,
                  activation="relu", features=None,
                  input_dim=3, output_dim=1, output_scale=None,
                  **kwargs):
+        """
+        Args:
+            latent_dim (int): dimension of the latent code.
+            hidden_dim (int): dimension of hidden layers.
+            n_layers (int): number of layers.
+            dropout (float): dropout rate.
+            weight_norm (bool): whether to apply weight normalization.
+            activation (str): type of activation function.
+            features (str): type of input features.
+            input_dim (int): dimension of the input.
+            output_dim (int): dimension of the output.
+            output_scale (float): scale to apply to the output.
+        """
         super().__init__()
         self.latent_dim = latent_dim
         self.dropout = dropout
-        self.last_tanh = last_tanh
         self.output_scale = self.register_buffer("output_scale", 
                                                  torch.tensor(output_scale) if output_scale is not None else None)
 
@@ -256,15 +299,16 @@ class DemodulatedDeepSDF(nn.Module):
         self.activ = get_activation(activation)
             
 
-    def forward(self, x):
-        # Separate latent from positions
-        lat = x[..., :self.latent_dim]
-        xyz = x[..., self.latent_dim:]
-
-        if self.features is not None:
-            out = self.features(xyz)
-        else:
-            out = xyz
+    def forward(self, lat, xyz):
+        """
+        Args:
+            lat (torch.Tensor): latent code. Should have singleton dimensions
+                where the latents need to be repeated. E.g., [B, 1, 256] if
+                xyz.shape = [B, N, 3] with B:=batch and N:=points per shape.
+            xyz (torch.Tensor): input positions.
+        """
+        # Compute input features
+        out = self.features(xyz) if self.features is not None else xyz
 
         for layer in self.layers[:-1]:
             out = self.activ(layer(out, lat))
@@ -272,8 +316,6 @@ class DemodulatedDeepSDF(nn.Module):
                 out = F.dropout(out, self.dropout)
         
         out = self.layers[-1](out, lat)
-        if self.last_tanh:
-            out = F.tanh(out)
         if self.output_scale is not None:
             out = out * self.output_scale
         return out

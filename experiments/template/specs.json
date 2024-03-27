@@ -23,7 +23,7 @@
     "LatentPretrained" : null,
     "LatentDim" : 256,
     "LatentBound" : 1.0,
-    "LatentRegularizationLambda" : 1e-4,
+    "LatentRegLambda" : 1e-4,
     "ReconLoss" : "L1-Hard",
     "EikonalLossLambda" : null,
     "Optimizer" : {

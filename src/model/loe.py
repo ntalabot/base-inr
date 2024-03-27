@@ -12,7 +12,6 @@ import torch.nn.functional as F
 
 from .activation import get_activation
 from .features import get_input_features
-from .module import ModulatedLinear
 
 
 # Following was the provided snippet from the authors on OpenReview.
@@ -59,8 +58,22 @@ class LevelsOfExperts(nn.Module):
                  n_experts_per_dim=2,  # number of experts per layer, per dimension (so is taken to the power of 3)
                  tiling_type="coarsetofine", interp_type="nearest",
                  activation="relu", features=None,
-                 input_dim=3, output_dim=1,
+                 input_dim=3, output_dim=1, output_scale=None,
                  **kwargs):
+        """
+        Args:
+            latent_dim (int): dimension of the latent code.
+            hidden_dim (int): dimension of the hidden layers.
+            n_layers (int): number of layers.
+            in_insert (list of int): list of layers where to reinsert the input.
+            n_experts_per_dim (int): number of experts per layer, per dimension.
+            tiling_type (str): type of tiling, either "coarsetofine" or "finetocoarse".
+            interp_type (str): type of interpolation, currently only "nearest" is supported.
+            activation (str): type of activation function.
+            features (str): type of input features.
+            input_dim (int): dimension of the input coordinates.
+            output_dim (int): dimension of the output.
+        """
         super().__init__()
         self.latent_dim = latent_dim
         self.in_insert = in_insert
@@ -68,6 +81,8 @@ class LevelsOfExperts(nn.Module):
         self.N_per_d = n_experts_per_dim
         self.N = self.N_per_d ** input_dim
         self.interp_type = interp_type
+        self.output_scale = self.register_buffer("output_scale", 
+                                                 torch.tensor(output_scale) if output_scale is not None else None)
 
         if features is None or features == "none":
             self.features = None
@@ -111,14 +126,18 @@ class LevelsOfExperts(nn.Module):
             raise NotImplementedError(f"Unknown interpolation type \"{self.interp_type}\".")
 
 
-    def forward(self, x):
+    def forward(self, lat, xyz):
+        """
+        Args:
+            lat (torch.Tensor): latent code. Should have singleton dimensions
+                where the latents need to be repeated. E.g., [B, 1, 256] if
+                xyz.shape = [B, N, 3] with B:=batch and N:=points per shape.
+            xyz (torch.Tensor): input positions.
+        """
         batch_shape = x.shape[:-1]
-        # Separate latent from positions
-        lat = x[..., :self.latent_dim]
-        xyz = x[..., self.latent_dim:]
-
+        # Compute input features, then concatenate them with the latent code
         feats = self.features(xyz) if self.features is not None else xyz
-        x = torch.cat([lat, feats], dim=-1)
+        x = torch.cat([lat.expand(batch_shape + (-1,)), feats], dim=-1)
 
         # Flatten the batch dimensions
         xyz = xyz.flatten(0, -2)
@@ -147,64 +166,6 @@ class LevelsOfExperts(nn.Module):
                 if (i + 1) in self.in_insert:
                     inp = torch.cat([inp, x], dim=-1)
 
+        if self.output_scale is not None:
+            out = out * self.output_scale
         return out.view(batch_shape + (-1,))
-
-
-class LatentModulatedLoE(nn.Module):
-    """Latent Modulated Level-of-Experts. NOT IMPLEMENTED!"""
-    # TODO
-    
-    def __init__(self, latent_dim=256, hidden_dim=512, n_layers=8,
-                 dropout=0., weight_norm=True, last_tanh=False,
-                 activation="relu", features=None,
-                 input_dim=3, output_dim=1,
-                 **kwargs):
-        raise NotImplementedError()
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.dropout = dropout
-        self.last_tanh = last_tanh
-
-        if features is None or features == "none":
-            self.features = None
-            feats_dim = input_dim
-        else:
-            self.features = get_input_features(features)
-            feats_dim = self.features.outdim
-
-        self.layers = nn.ModuleList()
-        self.layers.append(
-            ModulatedLinear(feats_dim, hidden_dim, self.latent_dim, None,
-                            weight_norm=weight_norm)
-        )
-        for _ in range(1, n_layers-1):
-            self.layers.append(
-                ModulatedLinear(hidden_dim, hidden_dim, self.latent_dim, None,
-                                weight_norm=weight_norm)
-            )
-        self.layers.append(
-            ModulatedLinear(hidden_dim, output_dim, self.latent_dim, None,
-                            weight_norm=weight_norm)
-        )
-        self.activ = get_activation(activation)
-            
-
-    def forward(self, x):
-        # Separate latent from positions
-        lat = x[..., :self.latent_dim]
-        xyz = x[..., self.latent_dim:]
-
-        if self.features is not None:
-            out = self.features(xyz)
-        else:
-            out = xyz
-
-        for layer in self.layers[:-1]:
-            out = self.activ(layer(out, lat))
-            if self.dropout > 0. and self.training:
-                out = F.dropout(out, self.dropout)
-        
-        out = self.layers[-1](out, lat)
-        if self.last_tanh:
-            out = F.tanh(out)
-        return out

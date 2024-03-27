@@ -13,7 +13,7 @@ try:
 except ImportError:
     marching_cubes_cuda = None
 
-from .utils import make_grid
+from .utils import make_grid, compute_sdf
 
 
 @torch.no_grad()
@@ -40,29 +40,6 @@ def compute_sdf_grid(model, latent, N=256, max_batch=32**3, bbox=[(-1., -1., -1.
     # Predict the SDF values on the grid
     sdf = compute_sdf(model, latent, xyz, max_batch, verbose, device=device)  
     return sdf.squeeze(-1)
-
-
-def compute_sdf(model, latent, xyz, max_batch=32**3, verbose=False, device="cuda:0"):
-    """Compute the SDF values at the given positions."""
-    if verbose:
-        start_time = time.time()
-    model.eval()
-
-    # Prepare data
-    xyz_all = xyz.view(-1, 3)
-    n_points = len(xyz_all)
-    sdf = torch.zeros(n_points, device=device)
-
-    # Predict SDF on a subset of points at a time
-    latent_rep = latent.expand(max_batch, -1)
-    for i in range(0, n_points, max_batch):
-        xyz_subset = xyz_all[i : i + max_batch].to(device)
-        inputs = torch.cat([latent_rep[:len(xyz_subset)], xyz_subset], dim=-1)
-        sdf[i : i + max_batch] = model(inputs)[:,0].detach().to(device)
-
-    if verbose:
-        print(f"sdf-prediction took {time.time() - start_time:.3f}s.")    
-    return sdf.view(xyz.shape[:-1] + (1,))
 
 
 def convert_sdf_grid_to_mesh(sdf_grid, voxel_size=1., voxel_origin=[-1., -1., -1.], level=0.,
@@ -231,9 +208,9 @@ class SdfGridFiller():
     @torch.no_grad()
     def make_sdf_func(self, model, latent, max_batch=32**3, device="cuda:0"):
         """Make an SDF function out of a model and latent vector."""
-        _latent_rep = latent.expand(max_batch, -1)
+        latent = latent.view(1, -1)
         
-        def sdf_func(xyz, max_batch=32**3):
+        def sdf_func(xyz, max_batch=max_batch):
             model.eval()
 
             # Prepare data
@@ -244,8 +221,7 @@ class SdfGridFiller():
             # Predict SDF on a subset of points at a time
             for i in range(0, n_points, max_batch):
                 xyz_subset = xyz_all[i : i + max_batch].to(device)
-                inputs = torch.cat([_latent_rep[:len(xyz_subset)], xyz_subset], dim=-1)
-                sdf[i : i + max_batch] = model(inputs)[:,0].detach().to(device)
+                sdf[i : i + max_batch] = model(latent, xyz_subset)[:,0].detach().to(device)
 
             return sdf.view(xyz.shape[:-1])
         

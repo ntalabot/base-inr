@@ -31,8 +31,8 @@ except ImportError:
     warnings.warn("PyTorch3D not found, rendering functions will not work.")
     renderer_available = False
 
-from .mesh import create_mesh, compute_sdf
-from .utils import make_grid2d
+from .mesh import create_mesh
+from .utils import make_grid2d, compute_sdf
 
 
 #############
