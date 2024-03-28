@@ -40,5 +40,6 @@
     "LogFrequency" : 10, 
     "SnapshotFrequency" : 500,
     "AdditionalSnapshots" : [ 100 ],
-    "RenderFrequency" : 200
+    "RenderFrequency" : 200,
+    "ValidFrequency" : 200
 }

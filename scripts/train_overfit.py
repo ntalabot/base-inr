@@ -149,7 +149,7 @@ def main(args=None):
     loss_names = ['loss', 'loss_reg']
     if eikonal_lambda is not None and eikonal_lambda > 0.:
         loss_names += ['loss_eik']
-    for key in loss_names + ['lr', 'lr_lat', 'lat_norm']:
+    for key in loss_names + ['lr']:
         if key not in history:
             history[key] = []
     for epoch in range(history['epoch']+1, n_epochs+1):
@@ -163,38 +163,31 @@ def main(args=None):
 
         xyz = xyz.unsqueeze(0).requires_grad_(eikonal_lambda is not None and eikonal_lambda > 0.)  # 1xNx3
         sdf_gt = sdf_gt.unsqueeze(0)  # 1xNx1
-        batch_latents = latent.view(1, 1, -1).expand(1, xyz.shape[1], 1)  # 1xNxL
+        batch_latents = latent.view(1, 1, -1)  # 1x1xL
 
-        inputs = torch.cat([batch_latents, xyz], dim=-1)  # 1xNx(L+3)
-        sdf_pred = model(inputs)
+        sdf_pred = model(batch_latents, xyz)
         sdf_pred_noclamp = sdf_pred
         if clampD is not None and clampD > 0.:
             sdf_pred = clamp_sdf(sdf_pred, clampD, ref=sdf_gt)
             sdf_gt = clamp_sdf(sdf_gt, clampD)
         
         loss = loss_recon(sdf_pred, sdf_gt).mean()
-        running_losses['loss'] += loss.item()
+        running_losses['loss'] += loss.detach()
         # Eikonal loss
         if eikonal_lambda is not None and eikonal_lambda > 0.:
             grads = get_gradient(xyz, sdf_pred_noclamp)
             loss_eikonal = (grads.norm(dim=-1) - 1.).square().mean()
             loss = loss + eikonal_lambda * loss_eikonal
-            running_losses['loss_eik'] += loss_eikonal.item()
-        # Latent regularization
-        if latent_reg is not None and latent_reg > 0.:
-            loss_reg = min(1, epoch / 100) * batch_latents[:,0,:].square().sum()
-            loss = loss + latent_reg * loss_reg
-            running_losses['loss_reg'] += loss_reg.item()
+            running_losses['loss_eik'] += loss_eikonal.detach()
         
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad(set_to_none=True)
+        optimizer.zero_grad()
         
         history['epoch'] += 1
         for name in loss_names:
-            history[name].append(running_losses[name])
+            history[name].append(running_losses[name].item())
         history["lr"].append(optimizer.state_dict()["param_groups"][0]["lr"])
-        history["lr_lat"].append(optimizer.state_dict()["param_groups"][1]["lr"])
 
         # Apply lr-schedule
         if scheduler is not None:
@@ -203,7 +196,7 @@ def main(args=None):
         # WandB
         for name in loss_names:
             wandb.log({f"loss/{name}": history[name][-1]}, step=epoch)
-        for lr in ['lr', 'lr_lat']:
+        for lr in ['lr']:
             wandb.log({f"learning_rate/{lr}": history[lr][-1]}, step=epoch)
         
         # Renders, snapshot, log and checkpoint
@@ -225,7 +218,7 @@ def main(args=None):
         msg = f"Epoch {epoch}/{n_epochs}:"
         for name in loss_names:
             msg += f"{name}={history[name][-1]:.6f} - "
-        msg = msg[:-3] + f" ({time.time() - time_epoch:.0f}s/epoch)"
+        msg = msg[:-3] + f" ({time.time() - time_epoch:.1f}s/epoch)"
         logging.info(msg)
 
     # End of training

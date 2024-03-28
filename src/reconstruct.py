@@ -14,12 +14,12 @@ from .utils import clamp_sdf, get_device
 
 def reconstruct(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1", 
                 latent_reg=None, clampD=None, latent_init=None, latent_size=256,
-                max_norm=None, verbose=False):
+                max_norm=None, verbose=False, device=get_device()):
     """Reconstruct the shape by optimizing the latent wrt to SDF data."""
     sdf_data = [sdf_data]
     return reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon=loss_fn_recon, 
                              latent_reg=latent_reg, clampD=clampD, latent_init=latent_init, latent_size=latent_size,
-                             max_norm=max_norm, verbose=verbose)
+                             max_norm=max_norm, verbose=verbose, device=device)
 
 
 def reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1", 

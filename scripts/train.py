@@ -181,33 +181,32 @@ def main(args=None):
             indices, xyz, sdf_gt = batch[0:3]
             xyz = xyz.to(device).requires_grad_(eikonal_lambda is not None and eikonal_lambda > 0.)  # BxNx3
             sdf_gt = sdf_gt.to(device)  # BxNx1
-            indices = indices.to(device).unsqueeze(-1).expand(-1, xyz.shape[1])  # BxN
-            batch_latents = latents(indices)  # BxNxL
+            indices = indices.to(device).unsqueeze(-1)  # Bx1
+            batch_latents = latents(indices)  # Bx1xL
 
-            inputs = torch.cat([batch_latents, xyz], dim=-1)  # BxNx(L+3)
-            sdf_pred = model(inputs)
+            sdf_pred = model(batch_latents, xyz)
             sdf_pred_noclamp = sdf_pred
             if clampD is not None and clampD > 0.:
                 sdf_pred = clamp_sdf(sdf_pred, clampD, ref=sdf_gt)
                 sdf_gt = clamp_sdf(sdf_gt, clampD)
             
             loss = loss_recon(sdf_pred, sdf_gt).mean()
-            running_losses['loss'] += loss.item() * batch_size
+            running_losses['loss'] += loss.detach() * batch_size
             # Eikonal loss
             if eikonal_lambda is not None and eikonal_lambda > 0.:
                 grads = get_gradient(xyz, sdf_pred_noclamp)
                 loss_eikonal = (grads.norm(dim=-1) - 1.).square().mean()
                 loss = loss + eikonal_lambda * loss_eikonal
-                running_losses['loss_eik'] += loss_eikonal.item() * batch_size
+                running_losses['loss_eik'] += loss_eikonal.detach() * batch_size
             # Latent regularization
             if latent_reg is not None and latent_reg > 0.:
                 loss_reg = min(1, epoch / 100) * batch_latents[:,0,:].square().sum()
                 loss = loss + latent_reg * loss_reg
-                running_losses['loss_reg'] += loss_reg.item()
+                running_losses['loss_reg'] += loss_reg.detach()
             
             loss.backward()
             optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad()
         
         # Validation
         if valid_frequency is not None and epoch % valid_frequency == 0:
@@ -240,7 +239,7 @@ def main(args=None):
         
         history['epoch'] += 1
         for name in running_losses:
-            history[name].append(running_losses[name] / len_dataset)
+            history[name].append(running_losses[name].item() / len_dataset)
         history["lr"].append(optimizer.state_dict()["param_groups"][0]["lr"])
         history["lr_lat"].append(optimizer.state_dict()["param_groups"][1]["lr"])
         lat_norms = torch.norm(latents.weight.data.detach(), dim=1).cpu()
@@ -289,12 +288,12 @@ def main(args=None):
             del checkpoint
         
         msg = f"Epoch {epoch}/{n_epochs}:"
-        for name in loss_names:
+        for name in running_losses:
             msg += f"{name}={history[name][-1]:.6f} - "
         if valid_frequency is not None and epoch % valid_frequency == 0:
             for k in valid_metrics:
                 msg += f"{k}-val={valid_metrics[k]:.6f} - "
-        msg = msg[:-3] + f" ({time.time() - time_epoch:.0f}s/epoch)"
+        msg = msg[:-3] + f" ({time.time() - time_epoch:.1f}s/epoch)"
         logging.info(msg)
 
     # End of training

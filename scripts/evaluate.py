@@ -27,9 +27,9 @@ def parser(argv=None):
 
     parser.add_argument('--debug', action='store_true', help="increase verbosity to print debugging messages")
     parser.add_argument('--load-epoch', default='latest', help="epoch to load, default to latest available")
+    parser.add_argument('--overwrite', action='store_true', help="overwrite shapes that are already evaluated")
     parser.add_argument('-q', '--quiet', dest="verbose", action='store_false',  help="disable verbosity and run in quiet mode")
     parser.add_argument('--seed', type=int, default=0, help="initial seed for the RNGs (default=0)")
-    parser.add_argument('--skip', action='store_true', help="skip meshes that are already evaluated")
     parser.add_argument('-s', '--split', help="split to evaluate, default to \"TestSplit\" in specs file")
     parser.add_argument('-t', '--test', action='store_true', help="reconstruct the test set, otherwise reconstruct the validation set (--split override this)")
 
@@ -107,8 +107,8 @@ def main(args=None):
         recon_mesh = trimesh.load(recon_mesh_filename)
 
         # Chamger-Distance
-        if args.skip and instance in results["chamfer"]:
-            logging.info(f"chamfer = {results["chamfer"][instance]} (existing)")
+        if not args.overwrite and instance in results["chamfer"]:
+            logging.info(f"chamfer = {results['chamfer'][instance]} (existing)")
         else:
             # Load GT surface samples
             gt_samples = np.load(os.path.join(datasource, instance, "surface.npz"))['all']
@@ -123,8 +123,8 @@ def main(args=None):
             logging.info(f"chamfer = {chamfer_val}")
         
         # Mesh Intersection-over-Union
-        if args.skip and instance in results["iou"]:
-            logging.info(f"iou = {results["iou"][instance]} (existing)")
+        if not args.overwrite and instance in results["iou"]:
+            logging.info(f"iou = {results['iou'][instance]} (existing)")
         else:
             # Load GT mesh
             gt_mesh = trimesh.load(os.path.join(specs['DataSource'], "meshes", instance+".obj"))

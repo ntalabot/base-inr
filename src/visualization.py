@@ -223,8 +223,11 @@ def render_latents(model, latents, size=512, aa_factor=1, **kwargs):
 
 def image_grid(images, rows=2):
     """Concatenate the same-sized images into a grid."""
+    if len(images) == 1:
+        return images[0]
+    
     # Number of images per row:
-    N = len(images) // rows
+    N = max(1, len(images) // rows)
 
     # Add empty images if needed
     to_add = len(images) % N

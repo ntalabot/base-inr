@@ -117,6 +117,8 @@ def compute_sdf(model, latent, xyz, max_batch=32**3, verbose=False, device=get_d
 
     # Prepare data
     xyz_all = xyz.view(-1, 3)
+    if not xyz_all.is_cuda:
+        xyz_all = xyz_all.pin_memory()
     n_points = len(xyz_all)
     sdf = torch.zeros(n_points, device=device)
 

@@ -34,10 +34,10 @@ def parser(argv=None):
     parser.add_argument('--lr', type=float, default=5e-3, help="learning rate for latent optimization")
     parser.add_argument('--max-norm', action='store_true', help="use the max norm from specs to bound the reconstructed latent (otherwise is unbounded)")
     parser.add_argument('-n', '--n-samples', type=int, default=8000, help="number of sdf samples used per iteration")
+    parser.add_argument('--overwrite', action='store_true', help="overwrite shapes that are already reconstructed")
     parser.add_argument('-q', '--quiet', dest="verbose", action='store_false',  help="disable verbosity and run in quiet mode")
     parser.add_argument('-r', '--resolution', type=int, default=256, help="resolution for the reconstruction with marching cubes")
     parser.add_argument('--seed', type=int, default=0, help="initial seed for the RNGs (default=0)")
-    parser.add_argument('--skip', action='store_true', help="skip meshes that are already reconstructed")
     parser.add_argument('-s', '--split', help="split to reconstruct, default to \"TestSplit\" in specs file")
     parser.add_argument('-t', '--test', action='store_true', help="reconstruct the test set, otherwise reconstruct the validation set (--split override this)")
 
@@ -111,7 +111,7 @@ def main(args=None):
     # Reconstruction
     for i, instance in enumerate(instances):
         logging.info(f"Shape {i+1}/{n_shapes} ({instance})")
-        if args.skip and \
+        if not args.overwrite and \
            os.path.isfile(os.path.join(latent_subdir, instance + ".pth")) and \
            os.path.isfile(os.path.join(mesh_subdir, instance + ".obj")):
             logging.info(f"already existing, skipping...")
@@ -124,7 +124,7 @@ def main(args=None):
         # Optimize latent
         err, latent = reconstruct(model, npz, args.iters, n_samples, args.lr, loss_recon, 
                                   latent_reg, clampD, latent_init=None, latent_size=specs["LatentDim"],
-                                  max_norm=max_norm, verbose=args.verbose)
+                                  max_norm=max_norm, verbose=args.verbose, device=device)
         logging.info(f"Final error={err:.6f}")
 
         # Reconstruct the mesh
