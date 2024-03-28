@@ -20,7 +20,7 @@ from src import workspace as ws
 from src.mesh import create_mesh
 from src.metric import chamfer_distance, mesh_iou
 from src.model import get_model, get_latents
-from src.utils import configure_logging, set_seed
+from src.utils import configure_logging, set_seed, get_device
 
 
 def parser(argv=None):
@@ -56,10 +56,11 @@ def main(args=None):
 
     expdir = args.experiment
     specs = ws.load_specs(expdir)
+    device = specs.get("Device", get_device())
     configure_logging(args, os.path.join(ws.get_log_dir(expdir), "evaltrainlog.txt"))
 
     logging.info(f"Command:  python {' '.join(sys.argv)}")
-    logging.info(f"Evaluating training shapes in {expdir}.")
+    logging.info(f"Evaluating training shapes in {expdir}. (on {device})")
     logging.info(f"arguments = {args}")
     
     # Data
@@ -77,8 +78,8 @@ def main(args=None):
         specs.get("Network", "DeepSDF"),
         **specs.get("NetworkSpecs", {}),
         latent_dim=latent_dim
-    ).cuda()
-    latents = get_latents(n_shapes, latent_dim, specs.get("LatentBound", None))
+    ).to(device)
+    latents = get_latents(n_shapes, latent_dim, specs.get("LatentBound", None), device=device)
 
     # Resume from checkpoint
     if args.load_epoch == 'latest':
@@ -93,6 +94,11 @@ def main(args=None):
         latents.load_state_dict(checkpoint['latents_state_dict'])
         print(f"File not found: {err.filename}.\nLoading checkpoint instead (epoch={checkpoint['epoch']}).")
         del checkpoint
+    
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad_(False)
+    latents.requires_grad_(False)
 
     # Parameters and directories
     eval_dir = ws.get_eval_dir(expdir, args.load_epoch)
@@ -119,7 +125,7 @@ def main(args=None):
         logging.info(f"Shape {i+1}/{n_shapes} ({instance})")
 
         # Reconstruct latent
-        recon_mesh = create_mesh(model, latents(torch.tensor([i]).cuda()), N=args.resolution)
+        recon_mesh = create_mesh(model, latents(torch.tensor([i]).to(device)), N=args.resolution, device=device)
 
         # Chamger-Distance
         if args.skip and instance in results["chamfer"]:

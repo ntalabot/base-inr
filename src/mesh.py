@@ -13,26 +13,26 @@ try:
 except ImportError:
     marching_cubes_cuda = None
 
-from .utils import make_grid, compute_sdf
+from .utils import make_grid, compute_sdf, get_device
 
 
 @torch.no_grad()
-def create_mesh(model, latent, N=256, max_batch=32**3, verbose=False, grid_filler=False):
+def create_mesh(model, latent, N=256, max_batch=32**3, verbose=False, grid_filler=False, device=get_device()):
     """Reconstruct the mesh from the latent vector."""
     # Compute the SDF values on a grid (fast or exact)
     if isinstance(grid_filler, SdfGridFiller):
         sdf_grid = grid_filler.fill_grid(grid_filler.make_sdf_func(model, latent, max_batch), verbose=verbose)
     elif grid_filler:
-        gf = SdfGridFiller(N, xyz_to_cuda=False)
+        gf = SdfGridFiller(N, device="cpu")
         sdf_grid = gf.fill_grid(gf.make_sdf_func(model, latent, max_batch), device="cpu", verbose=verbose)
     else:
-        sdf_grid = compute_sdf_grid(model, latent, N=N, max_batch=max_batch, verbose=verbose)
+        sdf_grid = compute_sdf_grid(model, latent, N=N, max_batch=max_batch, verbose=verbose, device=device)
     # Marching cubes
     mesh = convert_sdf_grid_to_mesh(sdf_grid, voxel_size=2. / (N - 1))
     return mesh
 
 
-def compute_sdf_grid(model, latent, N=256, max_batch=32**3, bbox=[(-1., -1., -1.), (1., 1., 1.)], verbose=False, device="cuda:0"):
+def compute_sdf_grid(model, latent, N=256, max_batch=32**3, bbox=[(-1., -1., -1.), (1., 1., 1.)], verbose=False, device=get_device()):
     """Compute the SDF values over a grid in the given bounding box."""
     # Create points on a grid
     xyz = make_grid(bbox, N, device=device)
@@ -80,7 +80,7 @@ class SdfGridFiller():
     Adapted from Benoit Guillard.
     """
     
-    def __init__(self, N_max, xyz_to_cuda=True):
+    def __init__(self, N_max, device=get_device()):
         """
         Initialize the grid filler.
 
@@ -90,8 +90,8 @@ class SdfGridFiller():
         -----
         N_max : int
             Maximum resolution of the grid.
-        xyz_to_cuda: bool (default=True)
-            Pre-load the xyz coords to CUDA (trade-off memory vs computation).
+        device: str or Device (default=cuda if available)
+            Device where the xyz coords are stored (trade-off memory vs computation).
         """
         # Save attributes
         self.N_max = N_max
@@ -99,9 +99,7 @@ class SdfGridFiller():
         # Create the coords grid (N,N,N,3) where 3 = x,y,z
         xyz = make_grid([(-1., -1., -1.), (1., 1., 1.)], N_max)
         xyz.pin_memory()
-        self.xyz = xyz.reshape(-1, 3)
-        if xyz_to_cuda:
-            self.xyz = self.xyz.cuda()
+        self.xyz = xyz.reshape(-1, 3).to(device)
         
         # Precompute binary masks for sparsely adressing the above grid
         self.N_levels = [32 * (2**i) for i in range(int(np.log2(N_max) - 4))] # Minimum level = 32
@@ -135,7 +133,7 @@ class SdfGridFiller():
 
                 
     @torch.no_grad()
-    def fill_grid(self, sdf_func, return_queries=False, device="cuda:0", verbose=False):
+    def fill_grid(self, sdf_func, return_queries=False, device=get_device(), verbose=False):
         """
         Fill the SDF grid by increasing resolution.
 
@@ -145,7 +143,7 @@ class SdfGridFiller():
             Function that takes a batch of coordinates and returns the SDF values.
         return_queries: bool (default=False)
             Also return the number of queried points.
-        device: str (default="cuda:0")
+        device: str (default="cuda:0" if available)
             Device where the SDF grid is stored.
         """
         if verbose:
@@ -183,7 +181,7 @@ class SdfGridFiller():
             # Query the network
             if return_queries:
                 queries_number += mask_coarse_no_recompute.sum().item() # count the total number of network queries
-            xyz = self.xyz[mask_coarse_no_recompute].cuda()
+            xyz = self.xyz[mask_coarse_no_recompute]
             # Query + fill grid
             sdf_values[mask_coarse_no_recompute] = sdf_func(xyz).detach().to(device)
 
@@ -206,7 +204,7 @@ class SdfGridFiller():
     
     
     @torch.no_grad()
-    def make_sdf_func(self, model, latent, max_batch=32**3, device="cuda:0"):
+    def make_sdf_func(self, model, latent, max_batch=32**3, device=get_device()):
         """Make an SDF function out of a model and latent vector."""
         latent = latent.view(1, -1)
         
@@ -228,7 +226,7 @@ class SdfGridFiller():
         return sdf_func
     
     @torch.no_grad()
-    def make_mesh(self, sdf_func, return_queries=False, device="cuda:0", verbose=False):
+    def make_mesh(self, sdf_func, return_queries=False, device=get_device(), verbose=False):
         """Mesh an SDF function."""
         sdf_grid = self.fill_grid(sdf_func, return_queries=return_queries, 
                                   device=device, verbose=verbose)

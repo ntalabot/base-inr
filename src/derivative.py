@@ -8,6 +8,11 @@ import igl
 import torch
 from torch import autograd
 
+from utils import get_device
+
+
+_device = get_device()
+
 
 # Autograd
 ##########
@@ -49,13 +54,13 @@ _offset_fd = torch.tensor([[  # for first derivative (1x3x2x3)
     [[-1, 0, 0], [1, 0, 0]],
     [[0, -1, 0], [0, 1, 0]],
     [[0, 0, -1], [0, 0, 1]],
-]]).float().cuda()
+]]).float().to(_device)
 _offset_2nd_fd = torch.tensor([[  # for second derivative (1x19x3)
     [0, 0, 0],
     [-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1],
     [-1, -1, 0], [1, 1, 0], [-1, 0, -1], [1, 0, 1], [0, -1, -1], [0, 1, 1],
     [-1, 1, 0], [1, -1, 0], [-1, 0, 1], [1, 0, -1], [0, 1, -1], [0, -1, 1],
-]]).float().cuda()
+]]).float().to(_device)
 
 
 def _build_hessian_fd(sdf):

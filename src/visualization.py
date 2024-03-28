@@ -32,22 +32,22 @@ except ImportError:
     renderer_available = False
 
 from .mesh import create_mesh
-from .utils import make_grid2d, compute_sdf
+from .utils import make_grid2d, compute_sdf, get_device
 
 
 #############
 # Rendering #
 #############
 
-def convert_meshes_pytorch3d(meshes, use_texture=False):
+def convert_meshes_pytorch3d(meshes, use_texture=False, device=get_device()):
     """Convert a list of (non-empty) meshes from Trimesh to PyTorch3D."""
     assert renderer_available, "PyTorch3D not installed, cannot render."
 
-    verts = [torch.tensor(mesh.vertices).float().cuda() for mesh in meshes]
-    faces = [torch.tensor(mesh.faces).float().cuda() for mesh in meshes]
+    verts = [torch.tensor(mesh.vertices).float().to(device) for mesh in meshes]
+    faces = [torch.tensor(mesh.faces).float().to(device) for mesh in meshes]
 
     if use_texture:
-        verts_rgb = [torch.tensor(mesh.visual.vertex_colors[:,:3]).float().cuda() / 255.
+        verts_rgb = [torch.tensor(mesh.visual.vertex_colors[:,:3]).float().to(device) / 255.
                      for mesh in meshes]
     else:  # initialize each vertex to be white in color
         verts_rgb = [torch.ones_like(v) for v in verts]  # (B, V, 3)
@@ -58,7 +58,7 @@ def convert_meshes_pytorch3d(meshes, use_texture=False):
 
 
 def get_renderer(size=512, ambient_light=False, eye=((1.2, 0.6, 1.8),), at=((0., 0., 0.),), 
-                 up=((0., 1., 0.),), light_loc=((4., 2., 2.),)):
+                 up=((0., 1., 0.),), light_loc=((4., 2., 2.),), device=get_device()):
     """
     Return a default PyTorch3D renderer.
 
@@ -79,7 +79,6 @@ def get_renderer(size=512, ambient_light=False, eye=((1.2, 0.6, 1.8),), at=((0.,
         The default renderer.
     """
     assert renderer_available, "PyTorch3D not installed, cannot render."
-    device = torch.device("cuda:0")
 
     # Initialize a camera
     R, T = look_at_view_transform(eye=eye, at=at, up=up) 
@@ -118,7 +117,7 @@ def get_renderer(size=512, ambient_light=False, eye=((1.2, 0.6, 1.8),), at=((0.,
 @torch.no_grad()
 def render_meshes(meshes, size=512, use_texture=False, ambient_light=False,
                   eye=((1.2, 0.6, 1.8),), at=((0., 0., 0.),), up=((0., 1., 0.),), aa_factor=1,
-                  **kwargs_renderer):
+                  device=get_device(), **kwargs_renderer):
     """
     Render all meshes based on the default renderer.
 
@@ -136,6 +135,8 @@ def render_meshes(meshes, size=512, use_texture=False, ambient_light=False,
         Cameras parameters for the views transforms.
     aa_factor: int
         Anti-aliasing factor: rendering at size * aa_factor and then average pooling.
+    device: str or Device
+        Device to use for the rendering.
     **kwargs_renderer: dict
         Additional parameters for the renderer.
     
@@ -152,7 +153,7 @@ def render_meshes(meshes, size=512, use_texture=False, ambient_light=False,
         idx = [i for i in range(n_mesh) if not meshes[i].is_empty]
         meshes = [mesh for mesh in meshes if not mesh.is_empty]
         if len(meshes) > 0:
-            meshes = convert_meshes_pytorch3d(meshes, use_texture=use_texture)
+            meshes = convert_meshes_pytorch3d(meshes, use_texture=use_texture, device=device)
     else:  # assumes PyTorch3D Meshes
         idx = [i for i in range(n_mesh) if not meshes[i].isempty()]
         meshes = [mesh for mesh in meshes if not mesh.isempty()]
@@ -162,7 +163,8 @@ def render_meshes(meshes, size=512, use_texture=False, ambient_light=False,
     images = torch.ones((n_mesh, size[0], size[1], 4))
     size = (size[0] * aa_factor, size[1] * aa_factor)
     if len(meshes) > 0:
-        renderer = get_renderer(size=size, ambient_light=ambient_light, eye=eye, at=at, up=up, **kwargs_renderer)
+        renderer = get_renderer(size=size, ambient_light=ambient_light, eye=eye, at=at, up=up, 
+                                device=device, **kwargs_renderer)
 
         with warnings.catch_warnings():
             # Ignore "R not valid rotation matrix" warning
@@ -198,6 +200,8 @@ def render_mesh(mesh, *args, **kwargs):
         Cameras parameters for the views transforms.
     aa_factor: int
         Anti-aliasing factor: rendering at size * aa_factor and then average pooling.
+    device: str or Device
+        Device to use for the rendering.
     **kwargs_renderer: dict
         Additional parameters for the renderer.
     
@@ -237,7 +241,7 @@ def image_grid(images, rows=2):
 # SDF #
 #######
 
-def plot_sdf_slices(model, latent, clampD=None, cmap='bwr', contour=False):
+def plot_sdf_slices(model, latent, clampD=None, cmap='bwr', contour=False, device=get_device()):
     """Return the figure ploting 2D slices of the SDF."""
     if isinstance(cmap, str):
         cmap = colormaps[cmap]
@@ -246,7 +250,7 @@ def plot_sdf_slices(model, latent, clampD=None, cmap='bwr', contour=False):
     for i, (ax, ax_name) in enumerate(zip(axs.flatten(), ['x', 'y', 'z'])):
         xyz = make_grid2d([[-1, -1], [1, 1]], 512, i, 0.)
         with torch.no_grad():
-            sdf = compute_sdf(model, latent, xyz.cuda()).squeeze().detach().cpu().T
+            sdf = compute_sdf(model, latent, xyz.to(device)).squeeze().detach().cpu().T
         vmax = sdf.abs().max()
         if clampD is not None and clampD > 0.:
             vmax = min(vmax, clampD)

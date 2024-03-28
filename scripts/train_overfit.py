@@ -26,7 +26,7 @@ from src.loss import get_loss_recon
 from src.mesh import create_mesh
 from src.model import get_model, get_latents
 from src.optimizer import get_optimizer, get_scheduler
-from src.utils import configure_logging, set_seed, clamp_sdf, get_gradient
+from src.utils import configure_logging, set_seed, get_device, clamp_sdf, get_gradient
 from src import visualization as viz
 
 
@@ -58,6 +58,7 @@ def main(args=None):
 
     expdir = args.experiment
     specs = ws.load_specs(expdir)
+    device = specs.get("Device", get_device())
     if args.reset:
         ws.reset_experiment_dir(expdir)
     else:
@@ -71,7 +72,7 @@ def main(args=None):
                mode=("disabled" if args.debug else None))
 
     logging.info(f"Command:  python {' '.join(sys.argv)}")
-    logging.info(f"Running experiment in {expdir}.")
+    logging.info(f"Running experiment in {expdir}. (on {device})")
     logging.info(f"arguments = {args}")
     
     # Data
@@ -81,7 +82,7 @@ def main(args=None):
     with open(specs["TrainSplit"]) as f:
         instance = json.load(f)[args.idx]
     all_samples = np.load(os.path.join(specs["DataSource"], specs["SamplesDir"], instance, specs["SamplesFile"]))
-    all_samples = {k: torch.from_numpy(all_samples[k]).float().cuda() for k in ['pos', 'neg']}
+    all_samples = {k: torch.from_numpy(all_samples[k]).float().to(device) for k in ['pos', 'neg']}
 
     logging.info(f"Overfitting shape {args.idx}: {instance}.")
 
@@ -91,9 +92,9 @@ def main(args=None):
         specs.get("Network", "DeepSDF"),
         **specs.get("NetworkSpecs", {}),
         latent_dim=latent_dim
-    ).cuda()
+    ).to(device)
     
-    latent = torch.zeros(1, latent_dim).cuda()
+    latent = torch.zeros(1, latent_dim).to(device)
 
     # If using pre-trained network and latents, load them (note: will get overwritten by existing checkpoints!)
     model_pretrain = specs.get("NetworkPretrained", None)
@@ -104,7 +105,7 @@ def main(args=None):
                  (" (pretrained)" if model_pretrain is not None else ""))
 
     # Loss and optimizer
-    loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none')
+    loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none').to(device)
     latent_reg = specs["LatentRegLambda"]
     eikonal_lambda = specs.get("EikonalLossLambda", None)
     
@@ -207,7 +208,7 @@ def main(args=None):
         
         # Renders, snapshot, log and checkpoint
         if render_frequency is not None and epoch % render_frequency == 0:
-            meshes = [create_mesh(model, latent)]
+            meshes = [create_mesh(model, latent, device=device)]
             renders = viz.render_meshes(meshes, size=224, aa_factor=2)
             ws.save_renders(expdir, renders, epoch)
             wandb.log({"render/training": [wandb.Image(render) for render in renders]}, step=epoch)

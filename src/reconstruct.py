@@ -9,7 +9,7 @@ from torch import optim
 
 from .data import remove_nans, samples_from_tensor
 from .loss import get_loss_recon
-from .utils import clamp_sdf
+from .utils import clamp_sdf, get_device
 
 
 def reconstruct(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1", 
@@ -24,7 +24,7 @@ def reconstruct(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1",
 
 def reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1", 
                       latent_reg=None, clampD=None, latent_init=None, latent_size=256,
-                      max_norm=None, verbose=False):
+                      max_norm=None, verbose=False, device=get_device()):
     """Reconstruct the batch of shapes by optimizing their latents wrt to SDF data."""
     if verbose:
         start_time = time.time()
@@ -32,14 +32,14 @@ def reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1
     n_shapes = len(sdf_data)
     sdf_pos = [remove_nans(sdf['pos']) for sdf in sdf_data]
     sdf_neg = [remove_nans(sdf['neg']) for sdf in sdf_data]
-    sdf_pos = [torch.from_numpy(sdf).float().cuda() for sdf in sdf_pos]
-    sdf_neg = [torch.from_numpy(sdf).float().cuda() for sdf in sdf_neg]
+    sdf_pos = [torch.from_numpy(sdf).float().to(device) for sdf in sdf_pos]
+    sdf_neg = [torch.from_numpy(sdf).float().to(device) for sdf in sdf_neg]
 
     # Initialize the latent
     if latent_init is None:
-        latent = torch.ones(n_shapes, latent_size).normal_(0, 0.01).cuda()
+        latent = torch.ones(n_shapes, latent_size).normal_(0, 0.01).to(device)
     elif isinstance(latent_init, float):
-        latent = torch.ones(n_shapes, latent_size).normal_(0, latent_init).cuda()
+        latent = torch.ones(n_shapes, latent_size).normal_(0, latent_init).to(device)
     elif isinstance(latent_init, torch.Tensor):
         latent = latent_init.clone().detach()
     latent = latent.view(n_shapes, -1)
@@ -47,7 +47,7 @@ def reconstruct_batch(model, sdf_data, n_iters, n_samples, lr, loss_fn_recon="l1
 
     # Optimizer and scheduler
     if isinstance(loss_fn_recon, str):
-        loss_fn_recon = get_loss_recon(loss_fn_recon, 'none')
+        loss_fn_recon = get_loss_recon(loss_fn_recon, 'none').to(device)
     optimizer = optim.Adam([latent], lr=lr)
     scheduler = optim.lr_scheduler.StepLR(optimizer, n_iters//2, 0.1)
 

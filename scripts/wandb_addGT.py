@@ -8,9 +8,7 @@ import argparse
 import logging
 import json
 
-import numpy as np
 import trimesh
-import torch
 import wandb
 
 
@@ -79,8 +77,6 @@ def main(args=None):
         mesh_subdir = os.path.join(expdir, "meshes")
         for i, instance in enumerate(instances):
             meshes[i].export(os.path.join(mesh_subdir, instance + ".obj"))
-
-    torch.cuda.empty_cache()  # release unused GPU memory
 
 
 if __name__ == "__main__":

@@ -29,9 +29,9 @@ def get_model(network, **kwargs):
         raise NotImplementedError(f"Unkown model \"{network}\"")
 
 
-def get_latents(n_shapes, dim, max_norm=None, std=None):
+def get_latents(n_shapes, dim, max_norm=None, std=None, device=None):
     """Create and initialize latent vectors as embeddings."""
-    latents = nn.Embedding(n_shapes, dim, max_norm=max_norm).cuda()
+    latents = nn.Embedding(n_shapes, dim, max_norm=max_norm).to(device)
     if std is None:
         std = 1. / sqrt(dim) if dim > 0 else 1.
     nn.init.normal_(latents.weight.data, 0., std)

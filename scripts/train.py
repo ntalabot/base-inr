@@ -27,7 +27,7 @@ from src.metric import chamfer_distance
 from src.model import get_model, get_latents
 from src.optimizer import get_optimizer, get_scheduler
 from src.reconstruct import reconstruct_batch, reconstruct
-from src.utils import configure_logging, set_seed, clamp_sdf, get_gradient
+from src.utils import configure_logging, set_seed, get_device, clamp_sdf, get_gradient
 from src import visualization as viz
 
 
@@ -61,6 +61,7 @@ def main(args=None):
 
     expdir = args.experiment
     specs = ws.load_specs(expdir)
+    device = specs.get("Device", get_device())
     if args.reset:
         ws.reset_experiment_dir(expdir)
     else:
@@ -74,14 +75,14 @@ def main(args=None):
                mode=("disabled" if args.debug else None))
 
     logging.info(f"Command:  python {' '.join(sys.argv)}")
-    logging.info(f"Running experiment in {expdir}.")
+    logging.info(f"Running experiment in {expdir}. (on {device})")
     logging.info(f"arguments = {args}")
     
     # Data
     batch_size = specs["ScenesPerBatch"]
     dataset = SdfDataset(specs["DataSource"], specs["TrainSplit"], specs["SamplesPerScene"], 
                          specs["SamplesDir"], specs["SamplesFile"])
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=args.workers)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
     len_dataset = len(dataset)
     # Validation data
     valid_frequency = specs.get("ValidFrequency", None)
@@ -103,9 +104,9 @@ def main(args=None):
         specs.get("Network", "DeepSDF"),
         **specs.get("NetworkSpecs", {}),
         latent_dim=latent_dim
-    ).cuda()
+    ).to(device)
     
-    latents = get_latents(len(dataset), latent_dim, specs.get("LatentBound", None))
+    latents = get_latents(len(dataset), latent_dim, specs.get("LatentBound", None), device=device)
 
     # If using pre-trained network and latents, load them (note: will get overwritten by existing checkpoints!)
     model_pretrain = specs.get("NetworkPretrained", None)
@@ -121,7 +122,7 @@ def main(args=None):
                  (" (pretrained)" if latent_pretrain is not None else ""))
 
     # Loss and optimizer
-    loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none')
+    loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none').to(device)
     latent_reg = specs["LatentRegLambda"]
     eikonal_lambda = specs.get("EikonalLossLambda", None)
     
@@ -178,9 +179,9 @@ def main(args=None):
 
         for i, batch in enumerate(dataloader):
             indices, xyz, sdf_gt = batch[0:3]
-            xyz = xyz.cuda().requires_grad_(eikonal_lambda is not None and eikonal_lambda > 0.)  # BxNx3
-            sdf_gt = sdf_gt.cuda()  # BxNx1
-            indices = indices.cuda().unsqueeze(-1).expand(-1, xyz.shape[1])  # BxN
+            xyz = xyz.to(device).requires_grad_(eikonal_lambda is not None and eikonal_lambda > 0.)  # BxNx3
+            sdf_gt = sdf_gt.to(device)  # BxNx1
+            indices = indices.to(device).unsqueeze(-1).expand(-1, xyz.shape[1])  # BxN
             batch_latents = latents(indices)  # BxNxL
 
             inputs = torch.cat([batch_latents, xyz], dim=-1)  # BxNx(L+3)
@@ -212,7 +213,7 @@ def main(args=None):
         if valid_frequency is not None and epoch % valid_frequency == 0:
             valid_metrics = {'loss': [], 'CD': []}
             valid_meshes = []
-            grid_filler = SdfGridFiller(256, xyz_to_cuda=True)
+            grid_filler = SdfGridFiller(256, device=device)
             model.eval()
             # Reconstruct and evaluate each validation shape
             for i, instance in enumerate(valid_split):
@@ -221,7 +222,7 @@ def main(args=None):
                 npz = np.load(filename)
                 # Optimize latent and reconstruct the mesh
                 err, latent = reconstruct(model, npz, 800, 8000, 5e-3, loss_recon, latent_reg=latent_reg, 
-                                          clampD=clampD, latent_size=latent_dim, verbose=False)
+                                          clampD=clampD, latent_size=latent_dim, verbose=False, device=device)
                 valid_metrics['loss'].append(err)
                 mesh = create_mesh(model, latent, grid_filler=grid_filler)
                 # Save mesh and metrics
@@ -267,7 +268,7 @@ def main(args=None):
         if render_frequency is not None and epoch % render_frequency == 0:
             idx = torch.cat([torch.arange(8)[:latents.num_embeddings],  # 8 first training shapes
                              torch.randperm(max(0, latents.num_embeddings - 8))[:8] + 8])  # 8 random training shapes
-            render_lats = latents(idx.cuda())
+            render_lats = latents(idx.to(device))
             meshes = [create_mesh(model, lat, grid_filler=True) for lat in render_lats]
             renders = viz.render_meshes(meshes, size=224, aa_factor=2)
             ws.save_renders(expdir, renders, epoch)
@@ -325,11 +326,11 @@ def main(args=None):
             # Reconstruct the shapes (optimize the latents)
             time_test = time.time()
             err, latent = reconstruct_batch(model, npz, 800, 8000, 5e-3, loss_recon, latent_reg=latent_reg, 
-                                            clampD=clampD, latent_size=latent_dim, verbose=False)
+                                            clampD=clampD, latent_size=latent_dim, verbose=False, device=device)
             logging.info(f"{sname.capitalize()} reconstruction ({len(idx)} shapes, {time.time() - time_test:.0f}s): final error={err:.6f}")
             
             # Render and save
-            meshes = [create_mesh(model, lat) for lat in latent]
+            meshes = [create_mesh(model, lat, device=device) for lat in latent]
             renders = viz.render_meshes(meshes, size=224, aa_factor=2)
             ws.save_renders(expdir, renders, str(history['epoch'])+"_"+sname)
             wandb.log({f"render/{sname}": [wandb.Image(render) for render in renders]}, step=history['epoch'])

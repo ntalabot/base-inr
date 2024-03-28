@@ -20,7 +20,7 @@ from src.loss import get_loss_recon
 from src.mesh import create_mesh
 from src.model import get_model
 from src.reconstruct import reconstruct
-from src.utils import configure_logging, set_seed
+from src.utils import configure_logging, set_seed, get_device
 
 
 def parser(argv=None):
@@ -51,14 +51,16 @@ def main(args=None):
     if args is None:
         args = parser()
     set_seed(args.seed)
+    device = get_device()
     start_time = time.time()
 
     expdir = args.experiment
     specs = ws.load_specs(expdir)
+    device = specs.get("Device", get_device())
     configure_logging(args, os.path.join(ws.get_log_dir(expdir), "reconlog.txt"))
 
     logging.info(f"Command:  python {' '.join(sys.argv)}")
-    logging.info(f"Reconstructing shapes in {expdir}.")
+    logging.info(f"Reconstructing shapes in {expdir}. (on {device})")
     logging.info(f"arguments = {args}")
     
     # Data
@@ -79,7 +81,7 @@ def main(args=None):
         specs.get("Network", "DeepSDF"),
         **specs.get("NetworkSpecs", {}),
         latent_dim=latent_dim
-    ).cuda()
+    ).to(device)
     # Evaluation mode with frozen model
     model.eval()
     for p in model.parameters():
@@ -88,7 +90,7 @@ def main(args=None):
     logging.info(f"Model has {sum([x.nelement() for x in model.parameters()]):,} parameters.")
 
     # Loss
-    loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none')
+    loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none').to(device)
     latent_reg = specs["LatentRegLambda"]
 
     # Resume from checkpoint
@@ -107,7 +109,6 @@ def main(args=None):
     os.makedirs(mesh_subdir, exist_ok=True)
 
     # Reconstruction
-    model.eval()
     for i, instance in enumerate(instances):
         logging.info(f"Shape {i+1}/{n_shapes} ({instance})")
         if args.skip and \
@@ -127,7 +128,7 @@ def main(args=None):
         logging.info(f"Final error={err:.6f}")
 
         # Reconstruct the mesh
-        mesh = create_mesh(model, latent, N=args.resolution, max_batch=32**3, verbose=args.verbose)
+        mesh = create_mesh(model, latent, N=args.resolution, max_batch=32**3, verbose=args.verbose, device=device)
 
         # Save results
         torch.save(latent, os.path.join(latent_subdir, instance + ".pth"))

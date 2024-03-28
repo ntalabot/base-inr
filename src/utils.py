@@ -29,6 +29,17 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
 
 
+def get_device(gpu_idx=0):
+    """Get the device to use for computation."""
+    if torch.cuda.is_available():
+        device = torch.device(f"cuda:{gpu_idx}")
+    elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    return device
+
+
 def configure_logging(args=None, logfile=None):
     logger = logging.getLogger()
     if args is None:
@@ -76,7 +87,7 @@ def configure_logging(args=None, logfile=None):
 # SDF #
 #######
 
-def compute_sdf(model, latent, xyz, max_batch=32**3, verbose=False, device="cuda:0"):
+def compute_sdf(model, latent, xyz, max_batch=32**3, verbose=False, device=get_device()):
     """
     Compute the SDF values for a single shape at the given positions.
 
@@ -92,7 +103,7 @@ def compute_sdf(model, latent, xyz, max_batch=32**3, verbose=False, device="cuda
         The maximum number of points to evaluate at once.
     verbose: bool (default=False)
         If True, print the time taken for the computation.
-    device: str (default="cuda:0")
+    device: str (default="cuda:0" if available)
         The device to use to store the final SDF values.
     
     Returns:
