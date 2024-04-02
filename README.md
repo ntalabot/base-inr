@@ -6,10 +6,10 @@ Template for Implicit Neural Representations (INR) projects, mostly with the Sig
 * [X] Look into IoU metric and Winding-Number (`libigl`)
 * [ ] ~~Speed up reconstruction function~~
 * [X] Add `device` instead of defaulting to CUDA
-* [ ] Restructure training (and inference/eval?) as `Trainer` class
+* [ ] Restructure training (and inference/eval?) as `Trainer` classes
 * [ ] Docs
   * [ ] Expected data structure
-* [ ] Make more generalize for arbitrary input dimension (e.g., to work in 3D and 2D)
+* [ ] Make more general to arbitrary input dimension (e.g., to work in 3D and 2D)
 
 
 ## File structure
@@ -23,7 +23,7 @@ Template for Implicit Neural Representations (INR) projects, mostly with the Sig
 
 
 ## How to use
-The scripts can be launched with:
+The scripts can be launched from the main directory with:
 ```bash
 python scripts/script.py [--option [VALUE]]
 ```
