@@ -9,7 +9,7 @@
     "SamplesFile" : "deepsdf.npz",
     "ScenesPerBatch" : 16,
     "SamplesPerScene" : 16384,
-    "Network": "LatentModulatedDeepSDF",
+    "Network": "LatentModulated",
     "NetworkSpecs" : {
         "hidden_dim" : 512,
         "n_layers" : 8,

@@ -3,8 +3,8 @@ from math import sqrt
 from torch import nn
 
 from .deepsdf import (
-    DeepSDF, LatentModulatedDeepSDF, InputModulatedDeepSDF, 
-    DemodulatedDeepSDF,
+    DeepSDF, LatentModulated, InputModulated, 
+    LatentDemodulated,
 )
 from .siren import Siren, LatentModulatedSiren
 from .loe import LevelsOfExperts
@@ -13,12 +13,12 @@ from .loe import LevelsOfExperts
 def get_model(network, **kwargs):
     if network.lower() == "deepsdf":
         return DeepSDF(**kwargs)
-    elif network.lower() == "latentmodulateddeepsdf":
-        return LatentModulatedDeepSDF(**kwargs)
-    elif network.lower() == "inputmodulateddeepsdf":
-        return InputModulatedDeepSDF(**kwargs)
-    elif network.lower() == "demodulateddeepsdf":
-        return DemodulatedDeepSDF(**kwargs)
+    elif network.lower() == "latentmodulated":
+        return LatentModulated(**kwargs)
+    elif network.lower() == "inputmodulated":
+        return InputModulated(**kwargs)
+    elif network.lower() == "latentdemodulated":
+        return LatentDemodulated(**kwargs)
     elif network.lower() == "siren":
         return Siren(**kwargs)
     elif network.lower() == "latentmodulatedsiren":

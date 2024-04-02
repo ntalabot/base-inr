@@ -108,8 +108,8 @@ class DeepSDF(nn.Module):
         return out
 
 
-class LatentModulatedDeepSDF(nn.Module):
-    """Latent Modulated DeepSDF."""
+class LatentModulated(nn.Module):
+    """MLP with Latent Modulated layers."""
     
     def __init__(self, latent_dim=256, hidden_dim=512, n_layers=8,
                  dropout=0., weight_norm=True,
@@ -181,8 +181,8 @@ class LatentModulatedDeepSDF(nn.Module):
         return out
 
 
-class InputModulatedDeepSDF(nn.Module):
-    """Input Modulated DeepSDF. Basically concat the input at each layer."""
+class InputModulated(nn.Module):
+    """MLP with Input Modulated layers. Basically, concat the input at each layer."""
     
     def __init__(self, latent_dim=256, hidden_dim=512, n_layers=8,
                  dropout=0., weight_norm=True, last_tanh=False,
@@ -248,8 +248,8 @@ class InputModulatedDeepSDF(nn.Module):
         return out
 
 
-class DemodulatedDeepSDF(nn.Module):
-    """DeepSDF with demodulated-linear layers."""
+class LatentDemodulated(nn.Module):
+    """MLP with demodulated-linear layers."""
     
     def __init__(self, latent_dim=256, hidden_dim=512, n_layers=8,
                  dropout=0., weight_norm=True,

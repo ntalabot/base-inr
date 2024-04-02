@@ -30,7 +30,7 @@ def parser(argv=None):
     parser.add_argument('--overwrite', action='store_true', help="overwrite shapes that are already evaluated")
     parser.add_argument('-q', '--quiet', dest="verbose", action='store_false',  help="disable verbosity and run in quiet mode")
     parser.add_argument('--seed', type=int, default=0, help="initial seed for the RNGs (default=0)")
-    parser.add_argument('-s', '--split', help="split to evaluate, default to \"TestSplit\" in specs file")
+    parser.add_argument('-s', '--split', help="split to evaluate, default to \"ValidSplit\" in specs file")
     parser.add_argument('-t', '--test', action='store_true', help="reconstruct the test set, otherwise reconstruct the validation set (--split override this)")
 
     # Chamfer-Distance
