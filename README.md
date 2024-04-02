@@ -10,6 +10,7 @@ Template for Implicit Neural Representations (INR) projects, mostly with the Sig
 * [ ] Docs
   * [ ] Expected data structure
 * [ ] Make more general to arbitrary input dimension (e.g., to work in 3D and 2D)
+* [ ] Rework `deepsdf` network classes into a single main one?
 
 
 ## File structure
