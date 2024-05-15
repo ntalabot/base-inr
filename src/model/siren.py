@@ -192,11 +192,11 @@ class LatentModulatedSiren(nn.Module):
         out = self.features(xyz) if self.features is not None else xyz
 
         for layer in self.layers[:-1]:
-            out = self.sine(layer(out, lat))
+            out = self.sine(layer(lat, out))
             if self.dropout > 0. and self.training:
                 out = F.dropout(out, self.dropout)
         
-        out = self.layers[-1](out, lat)
+        out = self.layers[-1](lat, out)
         if self.last_tanh:
             out = F.tanh(out)
         if self.output_scale is not None:

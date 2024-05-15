@@ -171,11 +171,11 @@ class LatentModulated(nn.Module):
         out = self.features(xyz) if self.features is not None else xyz
 
         for layer in self.layers[:-1]:
-            out = self.activ(layer(out, lat))
+            out = self.activ(layer(lat, out))
             if self.dropout > 0. and self.training:
                 out = F.dropout(out, self.dropout)
         
-        out = self.layers[-1](out, lat)
+        out = self.layers[-1](lat, out)
         if self.output_scale is not None:
             out = out * self.output_scale
         return out
@@ -236,11 +236,11 @@ class InputModulated(nn.Module):
 
         out = self.activ(self.layers[0](inp))
         for layer in self.layers[1:-1]:
-            out = self.activ(layer(out, inp))
+            out = self.activ(layer(inp, out))
             if self.dropout > 0. and self.training:
                 out = F.dropout(out, self.dropout)
         
-        out = self.layers[-1](out, inp)
+        out = self.layers[-1](inp, out)
         if self.last_tanh:
             out = F.tanh(out)
         if self.output_scale is not None:
@@ -311,11 +311,11 @@ class LatentDemodulated(nn.Module):
         out = self.features(xyz) if self.features is not None else xyz
 
         for layer in self.layers[:-1]:
-            out = self.activ(layer(out, lat))
+            out = self.activ(layer(lat, out))
             if self.dropout > 0. and self.training:
                 out = F.dropout(out, self.dropout)
         
-        out = self.layers[-1](out, lat)
+        out = self.layers[-1](lat, out)
         if self.output_scale is not None:
             out = out * self.output_scale
         return out

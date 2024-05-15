@@ -88,7 +88,7 @@ def get_renderer(size=512, ambient_light=False, eye=((1.2, 0.6, 1.8),), at=((0.,
     raster_settings = RasterizationSettings(
         image_size=size, 
         blur_radius=0.0, 
-        faces_per_pixel=1,
+        faces_per_pixel=8,
         cull_backfaces=False
     )
 
@@ -267,7 +267,7 @@ def plot_sdf_slices(model, latent, clampD=None, cmap='bwr', contour=False, devic
     return fig
 
 
-def plot_render(meshes, use_texture=None, titles=None, max_cols=3):
+def plot_render(meshes, use_texture=None, titles=None, max_cols=3, **kwargs):
     """
     Plot renders of the meshes, optionally using the mesh's texture.
 
@@ -280,11 +280,15 @@ def plot_render(meshes, use_texture=None, titles=None, max_cols=3):
         the render of meshes[i] should use its texture.
     titles: list of str (optional)
         List of title for the plots.
+    max_cols: int
+        Maximum number of columns in the plot.
+    **kwargs: dict
+        Additional arguments for render_meshes.
     """
     N = len(meshes)
     if use_texture is None:
         use_texture = [False] * N
-    images = [render_mesh(mesh, use_texture=texture) if mesh is not None else None
+    images = [render_mesh(mesh, use_texture=texture, **kwargs) if mesh is not None else None
               for (mesh, texture) in zip(meshes, use_texture)]
 
     n_cols = min(N, max_cols)

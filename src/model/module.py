@@ -33,7 +33,7 @@ class ModulatedLinear(nn.Module):
         else:
             self.modulation = None
 
-    def forward(self, x, modulations):
+    def forward(self, modulations, x):
         shifts = self.modulation(modulations) if self.modulation is not None else 0.
         return self.linear(x) + shifts
 
@@ -69,7 +69,7 @@ class DemodulatedLinear(nn.Module):
         param *= 2 * k
         param -= k
     
-    def forward(self, x, modulations):
+    def forward(self, modulations, x):
         # Modulate weights
         scales = self.modulation(modulations).unsqueeze(-2)  # [B]x1xI
         weight_1 = self.weight * scales  # [B]xOxI

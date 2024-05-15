@@ -6,6 +6,7 @@ Template for Implicit Neural Representations (INR) projects, mostly with the Sig
 * [X] Look into IoU metric and Winding-Number (`libigl`)
 * [ ] ~~Speed up reconstruction function~~
 * [X] Add `device` instead of defaulting to CUDA
+* [ ] Make clamping part of SDF loss (make sure when it applies)?
 * [ ] Restructure training (and inference/eval?) as `Trainer` classes
 * [ ] Docs
   * [ ] Expected data structure
