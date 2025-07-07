@@ -79,10 +79,9 @@ def main(args=None):
     logging.info(f"arguments = {args}")
     
     # Data
-    batch_size = specs["ScenesPerBatch"]
     dataset = SdfDataset(specs["DataSource"], specs["TrainSplit"], specs["SamplesPerScene"], 
                          specs["SamplesDir"], specs["SamplesFile"])
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
+    dataloader = DataLoader(dataset, batch_size=specs["ScenesPerBatch"], shuffle=True, num_workers=args.workers, pin_memory=True)
     len_dataset = len(dataset)
     # Validation data
     valid_frequency = specs.get("ValidFrequency", None)
@@ -179,6 +178,7 @@ def main(args=None):
 
         for i, batch in enumerate(dataloader):
             indices, xyz, sdf_gt = batch[0:3]
+            batch_size = xyz.shape[0]
             xyz = xyz.to(device).requires_grad_(eikonal_lambda is not None and eikonal_lambda > 0.)  # BxNx3
             sdf_gt = sdf_gt.to(device)  # BxNx1
             indices = indices.to(device).unsqueeze(-1)  # Bx1
@@ -200,9 +200,9 @@ def main(args=None):
                 running_losses['loss_eik'] += loss_eikonal.detach() * batch_size
             # Latent regularization
             if latent_reg is not None and latent_reg > 0.:
-                loss_reg = min(1, epoch / 100) * batch_latents[:,0,:].square().sum()
+                loss_reg = min(1, epoch / 100) * batch_latents.square().sum()
                 loss = loss + latent_reg * loss_reg
-                running_losses['loss_reg'] += loss_reg.detach()
+                running_losses['loss_reg'] += loss_reg.detach() / batch_size
             
             loss.backward()
             optimizer.step()

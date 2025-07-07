@@ -106,7 +106,6 @@ def main(args=None):
 
     # Loss and optimizer
     loss_recon = get_loss_recon(specs.get("ReconLoss", "L1-Hard"), reduction='none').to(device)
-    latent_reg = specs["LatentRegLambda"]
     eikonal_lambda = specs.get("EikonalLossLambda", None)
     
     optimizer = get_optimizer(model, type=specs["Optimizer"].pop("Type"),
