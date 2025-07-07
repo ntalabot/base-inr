@@ -81,8 +81,7 @@ class LevelsOfExperts(nn.Module):
         self.N_per_d = n_experts_per_dim
         self.N = self.N_per_d ** input_dim
         self.interp_type = interp_type
-        self.output_scale = self.register_buffer("output_scale", 
-                                                 torch.tensor(output_scale) if output_scale is not None else None)
+        self.register_buffer("output_scale", torch.tensor(output_scale) if output_scale is not None else None)
 
         if features is None or features == "none":
             self.features = None

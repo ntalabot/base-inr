@@ -76,8 +76,8 @@ The metric values will be saved per-shape under `<experiments/expdir>/evaluation
 * [X] Look into IoU metric and Winding-Number (`libigl`)
 * [ ] ~~Speed up reconstruction function~~
 * [X] Add `device` instead of defaulting to CUDA
-* [ ] Change all `register_buffer` to not have None...
-* [ ] Make clamping part of SDF loss (make sure when it applies)?
+* [X] Change all `register_buffer` to not have None
+* [ ] ~~Make clamping part of SDF loss (make sure when it applies)?~~
 * [ ] Restructure training (and inference/eval?) as `Trainer` classes
 * [X] Docs: Expected data structure
 * [ ] Make more general to arbitrary input dimension (e.g., to work in 3D and 2D)

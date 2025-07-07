@@ -39,8 +39,7 @@ class DeepSDF(nn.Module):
         super().__init__()
         self.latent_dim = latent_dim
         self.in_insert = in_insert
-        self.output_scale = self.register_buffer("output_scale", 
-                                                 torch.tensor(output_scale) if output_scale is not None else None)
+        self.register_buffer("output_scale", torch.tensor(output_scale) if output_scale is not None else None)
 
         if features is None or features == "none":
             self.features = None
@@ -132,8 +131,7 @@ class LatentModulated(nn.Module):
         super().__init__()
         self.latent_dim = latent_dim
         self.dropout = dropout
-        self.output_scale = self.register_buffer("output_scale", 
-                                                 torch.tensor(output_scale) if output_scale is not None else None)
+        self.register_buffer("output_scale", torch.tensor(output_scale) if output_scale is not None else None)
 
         if features is None or features == "none":
             self.features = None
@@ -193,8 +191,7 @@ class InputModulated(nn.Module):
         self.latent_dim = latent_dim
         self.dropout = dropout
         self.last_tanh = last_tanh
-        self.output_scale = self.register_buffer("output_scale", 
-                                                 torch.tensor(output_scale) if output_scale is not None else None)
+        self.register_buffer("output_scale", torch.tensor(output_scale) if output_scale is not None else None)
 
         if features is None or features == "none":
             self.features = None
@@ -272,8 +269,7 @@ class LatentDemodulated(nn.Module):
         super().__init__()
         self.latent_dim = latent_dim
         self.dropout = dropout
-        self.output_scale = self.register_buffer("output_scale", 
-                                                 torch.tensor(output_scale) if output_scale is not None else None)
+        self.register_buffer("output_scale", torch.tensor(output_scale) if output_scale is not None else None)
 
         if features is None or features == "none":
             self.features = None
